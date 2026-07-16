@@ -1,0 +1,18 @@
+# Pinned runtime dependencies (Python 3.11).
+# torch is the CPU build by default; for CUDA wheels see https://pytorch.org/get-started/
+torch==2.3.1
+numpy==1.26.4
+pandas==2.2.2
+scikit-learn==1.4.2
+scipy==1.13.1
+matplotlib==3.8.4
+mediapipe==0.10.9
+opencv-python
+gradio==4.44.1
+pyyaml
+requests
+beautifulsoup4
+tqdm
+
+# --- dev / test ---
+pytest

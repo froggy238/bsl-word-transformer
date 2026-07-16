@@ -1,0 +1,28 @@
+# Data: videos are never committed (ethics: no redistribution of clips).
+# Landmark ARRAYS for train/val ARE shipped, per the release policy:
+# "the released repository contains landmark arrays and source URLs
+# rather than video". Held-out test material stays quarantined.
+data/raw_videos/
+data/test_videos/
+data/test_landmarks/
+
+# Experiment outputs
+results/
+
+# Model weights
+*.pt
+app/model/
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Environments
+.venv/
+venv/
+
+# Explicitly keep the tracked data files (safety negations)
+!data/metadata.csv
+!data/vocabulary.csv
+!data/splits.json

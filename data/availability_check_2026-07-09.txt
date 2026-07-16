@@ -1,0 +1,68 @@
+SignBSL.com availability sweep, 2026-07-09
+Command: python -m src.download --dry-run
+Criterion: >= 3 distinct video variants per word (Chapter 3, Section 3.2)
+
+Draft vocabulary (50 words):
+hello: 10 variants
+goodbye: 7 variants
+please: 7 variants
+thank-you: 9 variants
+sorry: 7 variants
+yes: 5 variants
+no: 7 variants
+good: 8 variants
+mother: 7 variants
+father: 9 variants
+sister: 9 variants
+brother: 11 variants
+family: 16 variants
+baby: 8 variants
+friend: 8 variants
+eat: 4 variants
+drink: 8 variants
+water: 7 variants
+toilet: 14 variants
+help: 11 variants
+home: 13 variants
+sleep: 5 variants
+work: 11 variants
+school: 5 variants
+money: 6 variants
+want: 2 variants          <- FAILED criterion, substituted
+like: 6 variants
+know: 5 variants
+understand: 4 variants
+think: 17 variants
+go: 12 variants
+come: 2 variants          <- FAILED criterion, substituted
+look: 13 variants
+make: 28 variants
+stop: 18 variants
+happy: 8 variants
+sad: 6 variants
+angry: 8 variants
+love: 5 variants
+tired: 9 variants
+bad: 4 variants
+what: 12 variants
+where: 9 variants
+who: 9 variants
+why: 6 variants
+how: 10 variants
+today: 5 variants
+tomorrow: 2 variants      <- FAILED criterion, substituted
+yesterday: 6 variants
+week: 6 variants
+
+Substitution candidates checked (same run):
+need: 5 variants          <- IN (replaces want; verbs)
+finish: 17 variants
+play: 10 variants
+learn: 12 variants
+ask: 11 variants          <- IN (replaces come; verbs)
+give: 14 variants
+wait: 10 variants
+now: 10 variants          (rejected: near-identical sign to today)
+morning: 15 variants      <- IN (replaces tomorrow; time)
+night: 12 variants
+year: 5 variants

@@ -1,0 +1,51 @@
+word,category,handedness,notes
+hello,greetings-courtesy,one,open hand raised near head with small wave
+goodbye,greetings-courtesy,one,open hand waving side to side
+please,greetings-courtesy,one,flat hand at chin moving slowly forward and down; near-pair with thank-you
+thank-you,greetings-courtesy,one,flat hand at chin flicking briskly forward; near-pair with please
+sorry,greetings-courtesy,one,closed fist rubbed in circle on chest
+yes,greetings-courtesy,one,closed fist nodding at wrist
+no,greetings-courtesy,one,flat hand twisting side to side
+good,greetings-courtesy,one,thumb up held forward
+mother,family,two,extended fingers tapped twice on opposite palm; regional variants exist
+father,family,two,extended fingers of both hands tapped together; regional variants exist
+sister,family,one,hooked index finger tapping nose
+brother,family,two,knuckles of both fists rubbing together
+family,family,two,both hands circling inward with F-like handshape
+baby,family,two,arms crossed rocking side to side
+friend,family,two,hands clasped together shaking gently
+eat,basic-needs,one,bunched fingertips tapped toward mouth
+drink,basic-needs,one,curved hand tipped toward mouth like a glass
+water,basic-needs,one,fingers tapped at chin; regional variants exist
+toilet,basic-needs,one,index finger tapped on shoulder or chest; regional variants exist
+help,basic-needs,two,fist with thumb up supported on opposite palm moving forward
+home,basic-needs,one,fingertips together moved toward cheek; regional variants exist
+sleep,basic-needs,two,hands pressed together beside tilted head
+work,basic-needs,two,side of one flat hand chopping onto other wrist twice
+school,basic-needs,two,both palms facing pushed forward twice; regional variants exist
+money,basic-needs,two,fingertips rubbing on opposite palm
+need,verbs,one,substituted for want on 2026-07-09 (want had 2 SignBSL variants < 3 required)
+like,verbs,one,flat hand tapping chest
+know,verbs,one,index finger or thumb tapping temple
+understand,verbs,one,index finger flicking up at temple
+think,verbs,one,index finger circling at temple
+go,verbs,one,index finger pointing and moving away from body
+ask,verbs,one,substituted for come on 2026-07-09 (come had 2 SignBSL variants < 3 required)
+look,verbs,one,V handshape moving from eyes outward
+make,verbs,two,fist stacked on fist twisting
+stop,verbs,two,edge of flat hand chopped onto opposite palm
+happy,emotions,two,flat hands brushing together upward repeatedly
+sad,emotions,one,flat hand drawn down in front of face
+angry,emotions,two,clawed hands pulling up chest
+love,emotions,two,crossed hands pressed to chest
+tired,emotions,two,hands drooping down from chest
+bad,emotions,one,extended pinkie held forward
+what,question-words,one,index finger wiggling side to side
+where,question-words,one,open palm up circling
+who,question-words,one,index finger circling near chin
+why,question-words,one,index finger tapping chest then turning palm up; regional variants exist
+how,question-words,two,palms up rolling outward from body
+today,time,two,both flat hands palm up moving down together
+morning,time,two,substituted for tomorrow on 2026-07-09 (tomorrow had 2 SignBSL variants < 3 required)
+yesterday,time,one,index finger or thumb arcing backward over shoulder
+week,time,two,index finger drawn across opposite palm
