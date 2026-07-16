@@ -158,7 +158,7 @@ pytest            # sanity: full test suite runs with no data downloaded
 Finally, `notebooks/results.ipynb` regenerates every dissertation figure and table from
 `results/runs/*`.
 
-## Sanity checks (run before trusting any result)
+## Sanity checks
 
 - **Overfit one batch** — `python -m src.train --config configs/transformer_aug_s42.yaml --overfit-batch`
   must reach >= 95% train accuracy within 200 steps, proving the model/loss/optimiser wiring.
