@@ -15,7 +15,7 @@ this dissertation.
 
 2) data/test_videos_signbank/  (100 clips)
    Citation-form sign clips from BSL SignBank (bslsignbank.ucl.ac.uk),
-   copyright UCL / DCAL. Downloaded with UCL's prior written permission for
+   copyright UCL / DCAL. Downloaded with UCL's permission for
    research use in this project (permission correspondence archived in the
    ethics appendix). Used exclusively as a held-out evaluation set. Full
    per-file provenance: data/signbank_metadata.csv and
