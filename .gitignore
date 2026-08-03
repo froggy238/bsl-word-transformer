@@ -24,6 +24,9 @@ __pycache__/
 notebooks/cuda_check.ipynb
 notebooks/Untitled.ipynb
 
+# Project management record (distributed with the examination archive only)
+decision_log.md
+
 # Environments
 .venv/
 venv/

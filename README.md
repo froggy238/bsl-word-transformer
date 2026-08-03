@@ -69,7 +69,6 @@ bsl-word-transformer/
 ├── tests/                    # pytest suite (runs without data or mediapipe)
 ├── requirements.txt
 ├── pytest.ini
-├── decision_log.md
 ├── LICENSE
 └── README.md
 ```
@@ -166,7 +165,8 @@ Finally, `notebooks/results.ipynb` regenerates every dissertation figure and tab
 ## v2 held-out evaluation (2026-07-27)
 
 The self-recorded test set originally planned in the methodology was replaced by a
-re-sourced two-part held-out evaluation (rationale and caveats: `decision_log.md`):
+re-sourced two-part held-out evaluation (rationale and caveats are recorded in the
+project's decision log, included with the examination archive):
 
 1. **Organisation-held-out one-shot test** — the three v1 validation organisations
    (69 clips, never trained on) became the test partition; model selection moved to a
