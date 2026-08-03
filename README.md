@@ -180,7 +180,7 @@ re-sourced two-part held-out evaluation (rationale and caveats: `decision_log.md
    ```
 
 2. **BSL SignBank cross-corpus one-shot test** — 100 citation-form clips (all 50 words)
-   from UCL BSL SignBank, downloaded under UCL's written permission, manifest and
+   from UCL BSL SignBank, manifest and
    per-file provenance committed (`data/signbank_gloss_map*.csv`,
    `data/signbank_metadata.csv`):
 
