@@ -14,11 +14,10 @@ this dissertation.
    landmark coordinates and source URLs, never these videos.
 
 2) data/test_videos_signbank/  (100 clips)
-   Citation-form sign clips from BSL SignBank (bslsignbank.ucl.ac.uk),
-   copyright UCL / DCAL. Downloaded with UCL's permission for
-   research use in this project (permission correspondence archived in the
-   ethics appendix). Used exclusively as a held-out evaluation set. Full
-   per-file provenance: data/signbank_metadata.csv and
+   Citation-form sign clips from the publicly accessible BSL SignBank
+   (bslsignbank.ucl.ac.uk), copyright UCL / DCAL. Downloaded for
+   non-commercial academic research and used exclusively as a held-out
+   evaluation set. Full per-file provenance: data/signbank_metadata.csv and
    data/signbank_gloss_map*.csv.
 
 Derived data (data/landmarks*, data/test_landmarks*) are MediaPipe Holistic

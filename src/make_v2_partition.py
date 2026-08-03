@@ -1,6 +1,6 @@
 """Build the v2 data partition: organisation-held-out TEST set, clip-level val.
 
-Context (see decision_log.md, 2026-07-27): the methodology's self-recorded test
+Context (2026-07-27): the methodology's self-recorded test
 set was replaced by promoting the v1 validation organisations — an
 organisation-grouped hold-out no model was ever trained on — to the one-shot
 test partition. Model selection moves to a new clip-level validation split cut

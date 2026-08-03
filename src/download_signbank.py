@@ -6,8 +6,7 @@ Downloads the citation-form MP4s listed in ``data/signbank_gloss_map.csv``
 folder-per-word layout that ``src.extract`` mirrors and
 ``src.evaluate --split test`` consumes.
 
-Run only under UCL's written permission for research use (see decision_log.md,
-2026-07-27; permission email archived in the ethics appendix). Clips are used
+For non-commercial academic research use. Clips are used
 solely as a held-out evaluation set, are never redistributed, and the
 repository ships derived landmarks and this manifest, not video.
 
@@ -33,8 +32,8 @@ OUT_DIR = Path("data/test_videos_signbank")
 PROVENANCE = Path("data/signbank_metadata.csv")
 DELAY_S = 1.5
 USER_AGENT = (
-    "bsl-word-transformer/1.0 (MSc research; UCL BSL SignBank written "
-    "permission on file; contact: https://github.com/froggy238)"
+    "bsl-word-transformer/1.0 "
+    "(MSc academic research; contact: https://github.com/froggy238)"
 )
 
 

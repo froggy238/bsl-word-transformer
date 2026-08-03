@@ -164,9 +164,9 @@ Finally, `notebooks/results.ipynb` regenerates every dissertation figure and tab
 
 ## v2 held-out evaluation (2026-07-27)
 
-The self-recorded test set originally planned in the methodology was replaced by a
-re-sourced two-part held-out evaluation (rationale and caveats are recorded in the
-project's decision log, included with the examination archive):
+The self-recorded test set originally planned in the methodology was replaced on
+2026-07-27 by a re-sourced two-part held-out evaluation (the caveats are disclosed
+in the dissertation report):
 
 1. **Organisation-held-out one-shot test** — the three v1 validation organisations
    (69 clips, never trained on) became the test partition; model selection moved to a
@@ -180,7 +180,8 @@ project's decision log, included with the examination archive):
    ```
 
 2. **BSL SignBank cross-corpus one-shot test** — 100 citation-form clips (all 50 words)
-   from UCL BSL SignBank, manifest and
+   from the publicly accessible UCL BSL SignBank, downloaded for non-commercial
+   academic research and used solely as a held-out evaluation set; manifest and
    per-file provenance committed (`data/signbank_gloss_map*.csv`,
    `data/signbank_metadata.csv`):
 
