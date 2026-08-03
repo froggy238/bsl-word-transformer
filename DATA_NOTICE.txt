@@ -1,0 +1,28 @@
+DATA NOTICE — third-party video content (examination use only)
+===============================================================
+
+This archive is an MSc dissertation submission. It contains third-party video
+material included SOLELY to allow examiners to verify the reported experiments.
+It must not be redistributed, published, or reused outside the examination of
+this dissertation.
+
+1) data/raw_videos/  (293 clips)
+   BSL dictionary clips located through SignBSL.com; copyright remains with the
+   contributing organisations recorded per clip in data/metadata.csv (source
+   URLs included). Downloaded politely, sequentially, for non-commercial
+   academic research. The project's public repository ships only derived
+   landmark coordinates and source URLs, never these videos.
+
+2) data/test_videos_signbank/  (100 clips)
+   Citation-form sign clips from BSL SignBank (bslsignbank.ucl.ac.uk),
+   copyright UCL / DCAL. Downloaded with UCL's prior written permission for
+   research use in this project (permission correspondence archived in the
+   ethics appendix). Used exclusively as a held-out evaluation set. Full
+   per-file provenance: data/signbank_metadata.csv and
+   data/signbank_gloss_map*.csv.
+
+Derived data (data/landmarks*, data/test_landmarks*) are MediaPipe Holistic
+landmark coordinates only — no imagery — and are shareable under the project's
+data statement (see README.md, "Ethics and data statement").
+
+S M Shamrat Tarek Hassan, MSc Data Science, 2026.

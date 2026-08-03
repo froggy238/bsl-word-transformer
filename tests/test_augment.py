@@ -48,6 +48,8 @@ def make_seq(t: int = 64, seed: int = 1, min_radius: float = 0.0) -> np.ndarray:
     rng = np.random.default_rng(seed)
     seq = rng.uniform(-1.0, 1.0, size=(t, 105, 3)).astype(np.float32)
     if min_radius > 0.0:
+        # Push xy points away from the origin: the rotation test compares arctan2
+        # angles, which are numerically unstable for points near (0, 0).
         xy = seq[..., :2]
         r = np.linalg.norm(xy, axis=-1, keepdims=True)
         scale = np.maximum(min_radius / np.maximum(r, 1e-9), 1.0)
@@ -61,6 +63,7 @@ def make_seq(t: int = 64, seed: int = 1, min_radius: float = 0.0) -> np.ndarray:
 
 
 def test_spatial_shape_dtype_finite() -> None:
+    # Safety over many draws: augmentation never changes shape/dtype or emits NaN/inf.
     seq = make_seq()
     for seed in range(50):
         out = spatial_augment(seq, np.random.default_rng(seed))
@@ -70,6 +73,9 @@ def test_spatial_shape_dtype_finite() -> None:
 
 
 def test_spatial_identity_when_no_transform_fires() -> None:
+    # spatial_augment draws four gates in order: rotate, scale, translate, jitter.
+    # All off -> output equals input exactly, but as a fresh copy (a shared view
+    # would let later in-place ops corrupt the cached original).
     seq = make_seq()
     out = spatial_augment(seq, ForcedGateRng([False, False, False, False]))
     assert np.array_equal(out, seq)
@@ -89,16 +95,16 @@ def test_spatial_rotation_only_bounded_angle() -> None:
         assert np.allclose(r_out, r_in, rtol=1e-4, atol=1e-5)
         # every point rotated by the same angle, |angle| <= 15 degrees
         diff = np.arctan2(out[..., 1], out[..., 0]) - np.arctan2(seq[..., 1], seq[..., 0])
-        diff = (diff + np.pi) % (2.0 * np.pi) - np.pi
+        diff = (diff + np.pi) % (2.0 * np.pi) - np.pi  # wrap angle differences into (-pi, pi]
         assert np.max(np.abs(diff)) <= max_theta + 5e-3
-        assert np.ptp(diff) < 2e-3
+        assert np.ptp(diff) < 2e-3  # one shared angle for all points => rigid rotation
 
 
 def test_spatial_scale_only_uniform_and_bounded() -> None:
     seq = make_seq(seed=3)
     for seed in range(20):
         out = spatial_augment(seq, ForcedGateRng([False, True, False, False], seed=seed))
-        mask = np.abs(seq) > 1e-3
+        mask = np.abs(seq) > 1e-3  # skip near-zero coords whose ratios blow up numerically
         ratios = out[mask] / seq[mask]
         assert SCALE_RANGE[0] - 1e-4 <= ratios.min()
         assert ratios.max() <= SCALE_RANGE[1] + 1e-4
@@ -118,6 +124,8 @@ def test_spatial_translate_only_constant_xy() -> None:
 
 
 def test_spatial_jitter_only_statistics() -> None:
+    # Additive noise should look like N(0, JITTER_SIGMA): near-zero mean, std within
+    # 10%, and no sample outside a 6-sigma envelope.
     seq = make_seq(seed=5)
     out = spatial_augment(seq, ForcedGateRng([False, False, False, True], seed=6))
     diff = (out - seq).ravel()
@@ -158,6 +166,8 @@ def test_temporal_length_bounds() -> None:
 
 
 def test_temporal_never_below_min_frames() -> None:
+    # The MIN_FRAMES floor stops speed-up/frame-drop producing degenerate clips that
+    # the later resample-to-64 step could not interpolate sensibly.
     for t in (8, 9, 12):
         seq = make_seq(t=t, seed=9)
         for seed in range(30):
@@ -170,6 +180,7 @@ def test_temporal_never_below_min_frames() -> None:
 
 
 def test_temporal_noop_returns_equal_copy() -> None:
+    # Gate off -> unchanged output, but still a defensive copy of the input.
     seq = make_seq(t=40, seed=10)
     out = temporal_augment(seq, ForcedGateRng([False]))
     assert np.array_equal(out, seq)
@@ -181,7 +192,7 @@ def test_temporal_frame_drop_preserves_order() -> None:
     seq = np.zeros((t, 105, 3), dtype=np.float32)
     seq[:, :, 0] = np.arange(t, dtype=np.float32)[:, None]  # time channel
     for seed in range(30):
-        out = temporal_augment(seq, ForcedGateRng([True, False], seed=seed))
+        out = temporal_augment(seq, ForcedGateRng([True, False], seed=seed))  # drop branch
         times = out[:, 0, 0]
         assert np.all(np.diff(times) > 0)  # strictly increasing => order kept
         assert set(times.tolist()) <= set(range(t))  # frames taken verbatim
@@ -193,7 +204,8 @@ def test_temporal_speed_resample_monotonic_time() -> None:
     seq = np.zeros((t, 105, 3), dtype=np.float32)
     seq[:, :, 0] = np.arange(t, dtype=np.float32)[:, None]
     for seed in range(30):
-        out = temporal_augment(seq, ForcedGateRng([True, True], seed=seed))
+        out = temporal_augment(seq, ForcedGateRng([True, True], seed=seed))  # speed branch
+        # Linear resampling of a ramp must keep the endpoints and stay monotonic.
         times = out[:, 0, 0]
         assert times[0] == pytest.approx(0.0, abs=1e-5)
         assert times[-1] == pytest.approx(t - 1, abs=1e-3)
@@ -207,6 +219,8 @@ def test_temporal_speed_resample_monotonic_time() -> None:
 
 
 def test_same_seed_gives_identical_output() -> None:
+    # Same Generator seed -> identical augmentation, underpinning the fully
+    # reproducible 12-run experiment grid (seeds 42/43/44).
     seq = make_seq(t=50, seed=11)
     for fn in (spatial_augment, temporal_augment):
         a = fn(seq, np.random.default_rng(123))
@@ -215,6 +229,7 @@ def test_same_seed_gives_identical_output() -> None:
 
 
 def test_input_not_mutated() -> None:
+    # Purity: augmentation must never edit the cached raw sequence in place.
     seq = make_seq(t=50, seed=12)
     ref = seq.copy()
     for seed in range(20):
@@ -224,6 +239,7 @@ def test_input_not_mutated() -> None:
 
 
 def test_float64_input_returns_float32() -> None:
+    # Pipeline contract: features are float32 regardless of input precision.
     seq = make_seq(t=32, seed=13).astype(np.float64)
     assert spatial_augment(seq, np.random.default_rng(0)).dtype == np.float32
     assert temporal_augment(seq, np.random.default_rng(0)).dtype == np.float32

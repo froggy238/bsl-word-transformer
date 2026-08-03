@@ -19,6 +19,9 @@ def test_attention_matches_torch_multihead_attention() -> None:
     mine = MultiHeadSelfAttention(d_model, n_heads, dropout=0.0)
     ref = nn.MultiheadAttention(d_model, n_heads, dropout=0.0, batch_first=True)
 
+    # nn.MultiheadAttention fuses Q, K, V into one (3*d_model, d_model) in_proj, mirroring
+    # our fused in_proj Linear — so weights can be copied across verbatim and any output
+    # difference must come from the attention maths itself.
     with torch.no_grad():
         ref.in_proj_weight.copy_(mine.in_proj.weight)
         ref.in_proj_bias.copy_(mine.in_proj.bias)
@@ -33,12 +36,14 @@ def test_attention_matches_torch_multihead_attention() -> None:
         out_ref, _ = ref(x, x, x, need_weights=False)
 
     assert out_mine.shape == out_ref.shape == (2, 10, d_model)
+    # allclose (not equal): float32 op ordering differs between implementations.
     assert torch.allclose(out_mine, out_ref, atol=1e-5), (
         f"max abs diff {(out_mine - out_ref).abs().max().item():.2e}"
     )
 
 
 def test_forward_shapes() -> None:
+    # Both architectures must map (B=8, T=64, F=315) features to (8, 50) class logits.
     torch.manual_seed(42)
     x = torch.randn(8, 64, 315)
     for model in (TransformerClassifier(), LSTMClassifier()):
@@ -49,6 +54,8 @@ def test_forward_shapes() -> None:
 
 
 def test_parameter_budgets() -> None:
+    # Capacity matching: both models near ~1M params and within 15% of each other,
+    # so any accuracy gap reflects architecture rather than parameter count.
     transformer = build_model({"arch": "transformer"})
     lstm = build_model({"arch": "lstm"})
     t_params = count_parameters(transformer)
@@ -60,6 +67,8 @@ def test_parameter_budgets() -> None:
 
 
 def test_gradients_flow_to_cls_and_pos_embedding() -> None:
+    # CLS token and positional embeddings are learned nn.Parameters; a wiring slip
+    # (e.g. an accidental detach or clone) would silently freeze them at init.
     torch.manual_seed(42)
     model = TransformerClassifier()
     model.train()
@@ -73,6 +82,8 @@ def test_gradients_flow_to_cls_and_pos_embedding() -> None:
 
 
 def test_eval_forward_deterministic() -> None:
+    # eval() must disable dropout so repeated inference is bit-identical — needed for
+    # the one-shot held-out test evaluation to be reproducible.
     torch.manual_seed(42)
     x = torch.randn(4, 64, 315)
     for model in (TransformerClassifier(), LSTMClassifier()):

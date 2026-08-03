@@ -14,12 +14,16 @@ def _random_skeleton(seed: int) -> np.ndarray:
     """Seeded random (10, 105, 3) skeleton with well-separated shoulders."""
     rng = np.random.default_rng(seed)
     seq = rng.uniform(0.0, 1.0, size=(T, 105, 3))
+    # Pin shoulder x-coordinates apart (with slight per-frame wobble) so the
+    # shoulder-distance scale divisor never approaches zero.
     seq[:, LEFT_SHOULDER, 0] = 0.35 + 0.02 * rng.standard_normal(T)
     seq[:, RIGHT_SHOULDER, 0] = 0.65 + 0.02 * rng.standard_normal(T)
     return seq
 
 
 def test_translation_invariance() -> None:
+    # A whole-body shift must cancel: re-centring on the shoulder midpoint means the
+    # signer's position in the camera frame carries no information.
     seq = _random_skeleton(42)
     shift = np.array([0.3, -0.2, 0.15])
     np.testing.assert_allclose(
@@ -32,6 +36,8 @@ def test_translation_invariance() -> None:
 
 @pytest.mark.parametrize("s", [0.25, 3.0])
 def test_uniform_scale_invariance(s: float) -> None:
+    # Camera zoom / distance invariance: dividing by shoulder distance removes any
+    # global scale factor, checked both below (0.25x) and above (3x) unity.
     seq = _random_skeleton(43)
     np.testing.assert_allclose(
         normalise_sequence(seq * s),
@@ -42,6 +48,7 @@ def test_uniform_scale_invariance(s: float) -> None:
 
 
 def test_combined_translate_and_scale_invariance() -> None:
+    # The two invariances must compose: scale-then-shift is a similarity transform.
     seq = _random_skeleton(44)
     shift = np.array([-0.4, 0.25, 0.1])
     np.testing.assert_allclose(
@@ -53,6 +60,9 @@ def test_combined_translate_and_scale_invariance() -> None:
 
 
 def test_nan_propagation() -> None:
+    # NaN markers for undetected blocks must pass through untouched: gap filling and
+    # NaN->0 happen later in load_clip, and normalisation must not smear NaNs into
+    # neighbouring landmarks or frames.
     seq = _random_skeleton(45)
     seq[2:6, LEFT_HAND_SLICE, :] = np.nan
     out = normalise_sequence(seq)
@@ -62,6 +72,8 @@ def test_nan_propagation() -> None:
 
 
 def test_canonical_frame() -> None:
+    # The defining canonical frame: per-frame shoulder midpoint at the origin and
+    # xy shoulder distance exactly 1 (z is excluded from the scale definition).
     out = normalise_sequence(_random_skeleton(46))
     midpoint = (out[:, LEFT_SHOULDER] + out[:, RIGHT_SHOULDER]) / 2.0
     np.testing.assert_allclose(midpoint, 0.0, rtol=0.0, atol=ATOL)
@@ -72,6 +84,7 @@ def test_canonical_frame() -> None:
 
 
 def test_input_not_mutated() -> None:
+    # Purity: the raw array may be cached and reused across epochs, so no in-place edits.
     seq = _random_skeleton(47)
     seq[3, LEFT_HAND_SLICE, :] = np.nan
     before = seq.copy()
@@ -81,6 +94,7 @@ def test_input_not_mutated() -> None:
 
 
 def test_shape_and_dtype_preserved() -> None:
+    # float32 in -> float32 out: no silent upcast to float64 inside the pipeline.
     seq = _random_skeleton(48).astype(np.float32)
     out = normalise_sequence(seq)
     assert out.shape == (T, 105, 3)
@@ -88,5 +102,6 @@ def test_shape_and_dtype_preserved() -> None:
 
 
 def test_rejects_bad_shape() -> None:
+    # Fail fast on anything that is not the 105-landmark skeleton layout.
     with pytest.raises(ValueError):
         normalise_sequence(np.zeros((T, 104, 3)))

@@ -5,6 +5,11 @@ Run: python configs/gen_configs.py  (writes the YAML files next to this script)
 
 from pathlib import Path
 
+# One flat YAML per run, filled with str.format (no YAML library needed to write).
+# Only run_id/arch/augment/seed vary; every other hyperparameter is frozen across
+# the grid so architecture and augmentation effects are not confounded by tuning.
+# Transformer sizing (d_model=192, 4 layers, 6 heads, d_ff=384) gives ~1M params;
+# the LSTM (hidden 256, 2 layers) is sized to match, controlling for capacity.
 TEMPLATE = """\
 run_id: {run_id}
 arch: {arch}
@@ -33,22 +38,24 @@ out_dir: results/runs
 """
 
 ARCHES = ("transformer", "lstm")
-SEEDS = (42, 43, 44)
+SEEDS = (42, 43, 44)  # three seeds per grid cell so results report mean +/- std
 
 
 def main() -> None:
-    out_dir = Path(__file__).resolve().parent
+    out_dir = Path(__file__).resolve().parent  # YAMLs are written next to this script
+    # Full factorial grid: 2 arches x 2 augmentation settings x 3 seeds = 12 configs.
     for arch in ARCHES:
         for augment in (True, False):
             for seed in SEEDS:
                 tag = "aug" if augment else "noaug"
+                # run_id doubles as the YAML filename and the results/runs/ folder name.
                 run_id = f"{arch}_{tag}_s{seed}"
                 path = out_dir / f"{run_id}.yaml"
                 path.write_text(
                     TEMPLATE.format(
                         run_id=run_id,
                         arch=arch,
-                        augment="true" if augment else "false",
+                        augment="true" if augment else "false",  # YAML booleans are lowercase
                         seed=seed,
                     ),
                     encoding="utf-8",

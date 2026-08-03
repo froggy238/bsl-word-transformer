@@ -44,6 +44,8 @@ CSV_FIELDS = [
 ]
 
 
+# Median = typical latency, robust to OS scheduling spikes; p95 = tail latency, showing
+# whether occasional slow frames would break the real-time feel.
 def _stats(samples: list[float]) -> tuple[float, float]:
     """(median, p95) of a list of per-stage timings in ms."""
     arr = np.asarray(samples)
@@ -88,19 +90,25 @@ def run_benchmark(
     seq_len = cfg.get("seq_len", 64)
     in_dim = cfg.get("in_dim", 315)
 
+    # Three throwaway forwards: first calls pay one-off costs (allocator growth, kernel
+    # selection) that would otherwise inflate the first measured window latency.
     with torch.inference_mode():  # model warm-up
         for _ in range(3):
             model(torch.zeros(1, seq_len, in_dim))
 
     cap = None
     holistic = None
+    # cv2/mediapipe are imported lazily so synthetic mode still runs on machines (e.g.
+    # CI) that have neither a camera nor mediapipe installed.
     if mode != "synthetic":
         import cv2
 
         cap = _open_capture(mode, source)
         holistic = _create_holistic()
 
-    rng = np.random.default_rng(42)
+    rng = np.random.default_rng(42)  # fixed seed: synthetic runs are reproducible
+    # Rolling window: maxlen=seq_len means appending frame 65 evicts frame 1, mirroring
+    # the live demo's sliding 64-frame context.
     buffer: deque[np.ndarray] = deque(maxlen=seq_len)
     capture_ms: list[float] = []
     holistic_ms: list[float] = []
@@ -109,14 +117,22 @@ def run_benchmark(
     measured = 0
     wall_start: float | None = None
 
+    # The first `warmup` frames run the full pipeline but their timings are discarded:
+    # they absorb cold caches, camera auto-exposure and MediaPipe graph start-up, which
+    # would otherwise skew the medians and especially the p95 tail.
     for i in range(frames + warmup):
         measuring = i >= warmup
         if measuring and wall_start is None:
-            wall_start = time.perf_counter()
+            wall_start = time.perf_counter()  # end-to-end clock starts after warm-up
 
         if mode == "synthetic":
+            # Random (105, 3) raw landmarks stand in for capture+holistic, so only
+            # normalise+forward are timed -- this checks the model-side budget but says
+            # nothing about MediaPipe's cost on this machine.
             raw = rng.random((N_LANDMARKS, N_COORDS)).astype(np.float32)
         else:
+            # perf_counter is a monotonic high-resolution clock, so per-stage deltas
+            # (t1-t0 etc.) stay trustworthy at sub-millisecond scale.
             t0 = time.perf_counter()
             ok, frame = cap.read()
             if not ok and mode == "video":  # loop the clip to reach --frames
@@ -127,7 +143,7 @@ def run_benchmark(
                 break
             t1 = time.perf_counter()
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            rgb.flags.writeable = False
+            rgb.flags.writeable = False  # read-only lets MediaPipe skip an internal copy
             results = holistic.process(rgb)
             raw = holistic_to_landmarks(results)
             t2 = time.perf_counter()
@@ -141,10 +157,14 @@ def run_benchmark(
         if measuring:
             normalise_ms.append((t4 - t3) * 1e3)
 
+        # Classify only when the window is full, and only every stride-th frame: a fresh
+        # forward per frame would waste CPU on near-identical windows; stride 8 matches
+        # the live demo's cadence.
         if len(buffer) == seq_len and i % stride == 0:
             t5 = time.perf_counter()
-            window = np.stack(buffer).reshape(1, seq_len, -1)
+            window = np.stack(buffer).reshape(1, seq_len, -1)  # 64 x (105,3) -> (1, 64, 315)
             with torch.inference_mode():
+                # softmax included so the timed work matches the demo's per-window cost
                 torch.softmax(model(torch.from_numpy(window)), dim=-1)
             t6 = time.perf_counter()
             if measuring:
@@ -153,6 +173,8 @@ def run_benchmark(
         if measuring:
             measured += 1
 
+    # Wall time spans everything since the first measured frame (all stages plus Python
+    # overhead), so measured/wall below is a genuine end-to-end fps.
     wall = time.perf_counter() - (wall_start if wall_start is not None else 0.0)
     if cap is not None:
         cap.release()
@@ -161,13 +183,15 @@ def run_benchmark(
     if measured == 0:
         raise RuntimeError("No frames measured; increase --frames or check source")
 
+    # Real-time criterion from the dissertation: >= 15 fps end-to-end AND < 100 ms
+    # per-window classification, both on a laptop CPU.
     end_to_end_fps = measured / wall
     fps_pass = end_to_end_fps >= FPS_TARGET
     latency_pass = False
     fwd_med = fwd_p95 = None
     if forward_ms:
         fwd_med, fwd_p95 = _stats(forward_ms)
-        latency_pass = fwd_med < WINDOW_LATENCY_TARGET_MS
+        latency_pass = fwd_med < WINDOW_LATENCY_TARGET_MS  # judged on the median (typical case)
 
     print(f"Benchmark: mode={mode} frames={measured} stride={stride} "
           f"seq_len={seq_len} (warmup {warmup} frames excluded)")
@@ -202,9 +226,12 @@ def run_benchmark(
     else:
         print("FAIL: per-window latency could not be measured")
 
+    # which: 0 = median, 1 = p95; empty string keeps CSV cells blank for skipped stages
     def fmt(samples: list[float], which: int) -> str:
         return f"{_stats(samples)[which]:.3f}" if samples else ""
 
+    # One CSV row per run; platform/CPU/versions are logged so the laptop-CPU latency
+    # claims in the write-up are traceable to a specific machine and software stack.
     row = {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "checkpoint": checkpoint,
@@ -269,6 +296,7 @@ def main(argv: list[str] | None = None) -> int:
         frames=args.frames, stride=args.stride, warmup=args.warmup,
         out_csv=args.out,
     )
+    # Non-zero exit code lets CI (or a script) gate on the real-time criterion.
     return 0 if (row["fps_pass"] and row["latency_pass"]) else 1
 
 

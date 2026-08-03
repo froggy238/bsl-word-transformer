@@ -39,6 +39,8 @@ from src.normalise import normalise_sequence
 
 def load_checkpoint(path: str) -> tuple[nn.Module, dict, list[str]]:
     """Load best.pt; return (model in eval mode, config dict, label_list)."""
+    # weights_only=False: the checkpoint bundles the config dict and label list alongside
+    # the tensors; map_location='cpu' because the demo targets laptop-CPU inference.
     ckpt = torch.load(path, map_location="cpu", weights_only=False)
     model = build_model(ckpt["config"])
     model.load_state_dict(ckpt["model_state"])
@@ -48,6 +50,8 @@ def load_checkpoint(path: str) -> tuple[nn.Module, dict, list[str]]:
 
 def holistic_to_landmarks(results) -> np.ndarray:
     """Convert one MediaPipe Holistic result to a (105, 3) array, NaN = missing."""
+    # Start every landmark as NaN: MediaPipe returns None for whole blocks it fails to
+    # detect (e.g. a hand out of frame), and NaN marks those rows as missing.
     arr = np.full((N_LANDMARKS, N_COORDS), np.nan, dtype=np.float32)
 
     def fill(block: slice, landmark_list) -> None:
@@ -62,6 +66,8 @@ def holistic_to_landmarks(results) -> np.ndarray:
         fill(RIGHT_HAND_SLICE, results.right_hand_landmarks)
     if results.face_landmarks is not None:
         face = results.face_landmarks.landmark
+        # keep only the 30 lip points from the 468-point face mesh: mouthings carry
+        # lexical information in BSL; the rest of the face mostly does not
         for j, idx in enumerate(MOUTH_FACE_INDICES):
             arr[MOUTH_SLICE.start + j] = (face[idx].x, face[idx].y, face[idx].z)
     return arr
@@ -69,6 +75,9 @@ def holistic_to_landmarks(results) -> np.ndarray:
 
 def normalise_frame(raw: np.ndarray) -> np.ndarray:
     """Normalise a single raw (105, 3) frame; missing landmarks become 0."""
+    # raw[None] adds a time axis, (105, 3) -> (1, 105, 3), so the training-time sequence
+    # normaliser is reused unchanged; [0] drops it again. NaN->0 mirrors training, since
+    # gap interpolation is impossible on a live stream.
     return np.nan_to_num(normalise_sequence(raw[None])[0], nan=0.0).astype(np.float32)
 
 
@@ -86,6 +95,8 @@ class PredictionSmoother:
 
     def update(self, class_idx: int, confidence: float) -> tuple[int | None, float]:
         """Feed one window's top-1; return (confirmed class or None, its conf)."""
+        # Streak logic: a confident window extends the streak only if it repeats the
+        # current candidate class; a different confident class restarts the streak at 1.
         if confidence >= self.threshold:
             if class_idx == self._candidate:
                 self._streak += 1
@@ -93,8 +104,10 @@ class PredictionSmoother:
                 self._candidate = class_idx
                 self._streak = 1
         else:
-            self._candidate = None
+            self._candidate = None  # any low-confidence window breaks the streak
             self._streak = 0
+        # Confirmation is sticky: once confirmed, the sign stays on screen until a new
+        # class is confirmed, so the display neither flickers nor goes blank mid-sign.
         if self._streak >= self.consecutive:
             self._confirmed = class_idx
             self._confirmed_conf = confidence
@@ -133,6 +146,8 @@ def run(
     model, cfg, label_list = load_checkpoint(checkpoint)
     seq_len = cfg.get("seq_len", 64)
     smoother = PredictionSmoother(threshold=threshold, consecutive=consecutive)
+    # Rolling window: appending frame 65 evicts frame 1, so the deque always holds the
+    # latest seq_len (64) normalised frames -- the same context length used in training.
     buffer: deque[np.ndarray] = deque(maxlen=seq_len)
 
     cap = cv2.VideoCapture(camera)
@@ -156,15 +171,18 @@ def run(
                 break
 
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            rgb.flags.writeable = False
+            rgb.flags.writeable = False  # read-only lets MediaPipe skip an internal copy
             results = holistic.process(rgb)
             buffer.append(normalise_frame(holistic_to_landmarks(results)))
 
+            # Classify every stride-th frame once the buffer is full: at ~30 fps input,
+            # stride 8 gives ~4 model calls/s, keeping the forward pass well inside the
+            # 100 ms per-window laptop-CPU budget.
             if len(buffer) == seq_len and frame_idx % stride == 0:
-                window = np.stack(buffer).reshape(1, seq_len, -1)
-                with torch.inference_mode():
+                window = np.stack(buffer).reshape(1, seq_len, -1)  # 64 x (105,3) -> (1, 64, 315)
+                with torch.inference_mode():  # no autograd bookkeeping during inference
                     probs = torch.softmax(model(torch.from_numpy(window)), dim=-1)
-                conf, cls = torch.max(probs[0], dim=0)
+                conf, cls = torch.max(probs[0], dim=0)  # top-1 over the 50 classes
                 latest = (label_list[int(cls)], float(conf))
                 confirmed_idx, confirmed_conf = smoother.update(
                     int(cls), float(conf)
@@ -183,14 +201,17 @@ def run(
             if mirror:
                 frame = cv2.flip(frame, 1)
 
+            # Exponential moving average of instantaneous fps: per-frame timings are
+            # noisy, so 0.9/0.1 smoothing gives a stable HUD readout.
             now = time.perf_counter()
-            inst = 1.0 / max(now - last_t, 1e-6)
+            inst = 1.0 / max(now - last_t, 1e-6)  # 1e-6 floor guards divide-by-zero
             fps = inst if fps == 0.0 else 0.9 * fps + 0.1 * inst
             last_t = now
 
+            # Semi-transparent HUD: blend a copy carrying a solid black banner back in.
             hud = frame.copy()
-            cv2.rectangle(hud, (0, 0), (frame.shape[1], 110), (0, 0, 0), -1)
-            frame = cv2.addWeighted(hud, 0.45, frame, 0.55, 0)
+            cv2.rectangle(hud, (0, 0), (frame.shape[1], 110), (0, 0, 0), -1)  # -1 = filled
+            frame = cv2.addWeighted(hud, 0.45, frame, 0.55, 0)  # 45% banner, 55% video
             if confirmed_idx is not None:
                 text = f"{label_list[confirmed_idx]}  {confirmed_conf:.2f}"
                 colour = (0, 255, 0)
@@ -212,10 +233,13 @@ def run(
             )
 
             cv2.imshow(window_name, frame)
+            # waitKey(1) also pumps the GUI event loop; & 0xFF keeps the keycode's low
+            # byte, which is portable across platforms.
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
             frame_idx += 1
     finally:
+        # release the camera and window even if the loop exits via an exception
         holistic.close()
         cap.release()
         cv2.destroyAllWindows()

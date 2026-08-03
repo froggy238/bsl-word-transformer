@@ -36,15 +36,21 @@ try:
 except ImportError:  # pragma: no cover - tqdm is optional
     tqdm = None
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[1]  # src/ -> repo root (for git provenance)
 
 
 def set_seed(seed: int) -> None:
     """Seed python, numpy and torch (CPU + CUDA) and force deterministic cuDNN."""
+    # Every RNG the pipeline touches must be seeded: `random` (python-level shuffles), numpy
+    # (label permutation, augmentation) and torch on CPU + all CUDA devices (weight init,
+    # dropout, DataLoader shuffling).
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+    # cuDNN normally autotunes and may pick non-deterministic kernels; forcing the
+    # deterministic path (and disabling benchmarking) makes runs exactly repeatable at a
+    # small speed cost — reproducibility matters for the seed-averaged 12-run grid.
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
@@ -55,8 +61,14 @@ def make_scheduler(
     """Per-epoch LR schedule: linear warm-up then cosine decay to zero."""
 
     def lr_lambda(epoch: int) -> float:
+        # LambdaLR multiplies the base lr by this factor; `epoch` counts from 0.
         if epoch < warmup_epochs:
+            # Warm-up: factor ramps 1/w, 2/w, ..., 1 so the first updates on a randomly
+            # initialised model are small (large early steps can destabilise Transformers).
             return (epoch + 1) / max(1, warmup_epochs)
+        # Cosine decay: as (epoch - warmup)/span runs 0 -> 1 the cos argument runs 0 -> pi,
+        # so the factor falls smoothly from 1 to 0 with no step-change drops. max(1, ...)
+        # guards division by zero when epochs == warmup_epochs.
         span = max(1, epochs - warmup_epochs)
         return 0.5 * (1.0 + math.cos(math.pi * (epoch - warmup_epochs) / span))
 
@@ -76,6 +88,8 @@ def build_dataloaders(
     # even if the data-layer module is unavailable.
     from src.dataset import BSLDataset, clip_id_to_word, load_splits
 
+    # splits.json was built grouped by source organisation, so no signer appears in both
+    # train and val — the signer-independence guarantee lives in that file, not here.
     splits = load_splits(cfg["splits_file"])
     label_list: list[str] = splits["label_list"]
     label_to_idx = {word: i for i, word in enumerate(label_list)}
@@ -89,10 +103,16 @@ def build_dataloaders(
 
     train_ids: list[str] = splits["train"]
     val_ids: list[str] = splits["val"]
+    # Labels come from the clip id itself (it encodes the word), so labels and files can
+    # never be misaligned by a separate labels file.
     train_labels = [label_to_idx[clip_id_to_word(c)] for c in train_ids]
     val_labels = [label_to_idx[clip_id_to_word(c)] for c in val_ids]
 
     if shuffle_labels:
+        # Destroy the input->label association while keeping inputs and label frequencies
+        # intact. A local seeded rng leaves the global RNG state untouched, so everything
+        # else (init, shuffling, augmentation) matches the real run. If val accuracy still
+        # beats chance afterwards, labels are leaking (e.g. duplicated or memorised clips).
         perm = np.random.default_rng(int(cfg["seed"])).permutation(len(train_labels))
         train_labels = [train_labels[i] for i in perm]
         print(
@@ -100,7 +120,7 @@ def build_dataloaders(
             f"expect val accuracy near chance ({1.0 / cfg.get('n_classes', 50):.3f})"
         )
 
-    seq_len = int(cfg.get("seq_len", 64))
+    seq_len = int(cfg.get("seq_len", 64))  # frames per clip after temporal resampling
     train_ds = BSLDataset(
         train_ids,
         train_labels,
@@ -115,18 +135,20 @@ def build_dataloaders(
         val_labels,
         cfg["landmarks_dir"],
         metadata,
-        augment=False,
+        augment=False,  # validation must measure a fixed distribution — never augmented
         seq_len=seq_len,
         seed=int(cfg["seed"]),
     )
 
+    # Dedicated seeded Generator: the train loader's shuffle order is reproducible without
+    # depending on (or perturbing) torch's global RNG stream.
     generator = torch.Generator()
     generator.manual_seed(int(cfg["seed"]))
     train_loader = DataLoader(
         train_ds,
         batch_size=int(cfg["batch_size"]),
         shuffle=True,
-        num_workers=0,
+        num_workers=0,  # single-process loading: deterministic order, no Windows fork issues
         generator=generator,
     )
     val_loader = DataLoader(
@@ -145,14 +167,17 @@ def _run_epoch(
     desc: str = "",
 ) -> tuple[float, float]:
     """One pass over loader; trains if optimizer is given. Returns (loss, acc)."""
-    training = optimizer is not None
-    model.train(training)
+    training = optimizer is not None  # one function serves both train and eval passes
+    model.train(training)  # toggles dropout etc. between train and eval behaviour
     total_loss, total_correct, total = 0.0, 0, 0
     iterator = loader
     if progress and tqdm is not None:
         iterator = tqdm(loader, desc=desc, leave=False)
+    # Pick the autograd context at runtime: eval passes skip gradient bookkeeping (faster,
+    # less memory) and cannot accidentally update weights.
     with torch.enable_grad() if training else torch.no_grad():
         for inputs, targets in iterator:
+            # inputs (B, 64, 315) flattened landmark features; targets (B,) class indices
             inputs = inputs.to(device)
             targets = targets.to(device)
             logits = model(inputs)
@@ -162,9 +187,12 @@ def _run_epoch(
                 loss.backward()
                 optimizer.step()
             n = targets.size(0)
+            # CrossEntropyLoss returns the batch mean, so re-weight by batch size before
+            # summing — otherwise a smaller final batch would be over-weighted.
             total_loss += loss.item() * n
-            total_correct += (logits.argmax(dim=1) == targets).sum().item()
+            total_correct += (logits.argmax(dim=1) == targets).sum().item()  # (B, C) -> (B,)
             total += n
+    # Dataset-level means; max(1, total) guards a zero-length loader.
     return total_loss / max(1, total), total_correct / max(1, total)
 
 
@@ -187,9 +215,13 @@ def train_loop(
     device = torch.device(device)
     model.to(device)
     epochs = int(cfg["epochs"])
+    # Label smoothing (default 0.1) spreads a little target mass over the wrong classes so
+    # the model cannot chase infinitely confident logits — a cheap regulariser given the
+    # small per-word clip counts.
     criterion = nn.CrossEntropyLoss(
         label_smoothing=float(cfg.get("label_smoothing", 0.1))
     )
+    # AdamW decouples weight decay from the adaptive step, giving true L2-style shrinkage.
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=float(cfg["lr"]),
@@ -202,6 +234,8 @@ def train_loop(
         run_dir = Path(run_dir)
         run_dir.mkdir(parents=True, exist_ok=True)
         metrics_path = run_dir / "metrics.csv"
+        # Write the header once, then append one row per epoch below, so the full learning
+        # curve survives on disk even if the run is interrupted mid-training.
         with open(metrics_path, "w", newline="") as f:
             csv.writer(f).writerow(
                 ["epoch", "train_loss", "train_acc", "val_loss", "val_acc", "lr"]
@@ -211,13 +245,14 @@ def train_loop(
     best_epoch = -1
     history: list[dict] = []
     for epoch in range(1, epochs + 1):
+        # Read the lr before scheduler.step() so the logged value is the one trained with.
         lr_now = optimizer.param_groups[0]["lr"]
         train_loss, train_acc = _run_epoch(
             model, train_loader, criterion, device,
             optimizer=optimizer, progress=progress, desc=f"epoch {epoch}",
         )
         val_loss, val_acc = _run_epoch(model, val_loader, criterion, device)
-        scheduler.step()
+        scheduler.step()  # per-epoch schedule: advance the warm-up/cosine factor
 
         history.append(
             {
@@ -247,10 +282,15 @@ def train_loop(
             f"val loss {val_loss:.4f} acc {val_acc:.4f} | lr {lr_now:.2e}"
         )
 
+        # Model selection uses val accuracy only (strict '>' keeps the earliest epoch on
+        # ties); the held-out test set is never consulted here, preserving the one-shot
+        # test discipline. best.pt is overwritten in place, keeping only the best weights.
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             best_epoch = epoch
             if run_dir is not None:
+                # Bundle config + label_list so evaluation can rebuild the exact model and
+                # class ordering from best.pt alone.
                 torch.save(
                     {
                         "model_state": model.state_dict(),
@@ -280,10 +320,13 @@ def overfit_one_batch(
     target_acc: float = 0.95,
 ) -> dict:
     """Sanity check: fit a single fixed batch; assert >=95% acc within 200 steps."""
+    # Any correctly wired model of this capacity should memorise one batch. Failure points
+    # to a plumbing bug (wrong shapes, detached graph, frozen weights, mis-scaled lr) —
+    # passing says nothing about generalisation, only that learning works end to end.
     device = torch.device(device)
     model.to(device)
     model.train()
-    inputs, targets = next(iter(train_loader))
+    inputs, targets = next(iter(train_loader))  # take one batch and reuse it every step
     inputs = inputs.to(device)
     targets = targets.to(device)
     criterion = nn.CrossEntropyLoss(
@@ -301,6 +344,7 @@ def overfit_one_batch(
         loss = criterion(logits, targets)
         loss.backward()
         optimizer.step()
+        # Accuracy from this step's forward pass (i.e. weights before the update above).
         acc = (logits.argmax(dim=1) == targets).float().mean().item()
         if step % 20 == 0 or acc >= target_acc:
             print(f"step {step:3d} | loss {loss.item():.4f} | batch acc {acc:.3f}")
@@ -316,6 +360,8 @@ def overfit_one_batch(
 
 def write_env_file(run_dir: Path) -> None:
     """Record python/torch/numpy versions and the git commit hash."""
+    # Provenance for the dissertation: every run directory records exactly which code and
+    # library versions produced it, so any reported figure can be traced back and re-run.
     try:
         commit = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -325,7 +371,7 @@ def write_env_file(run_dir: Path) -> None:
             check=True,
         ).stdout.strip() or "unknown"
     except Exception:
-        commit = "unknown"
+        commit = "unknown"  # not a git checkout / git absent: still record the versions
     lines = [
         f"python: {platform.python_version()}",
         f"torch: {torch.__version__}",
@@ -346,7 +392,9 @@ def run_training(
 
     Programmatic equivalent of the CLI so notebooks can call it directly.
     """
-    cfg = dict(cfg)
+    cfg = dict(cfg)  # shallow copy so overrides never mutate the caller's dict
+    # Seed before any model or data construction so weight init, shuffles and augmentation
+    # are all reproducible from cfg['seed'] alone.
     set_seed(int(cfg["seed"]))
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -365,16 +413,21 @@ def run_training(
     )
 
     if overfit_batch:
+        # Sanity mode writes nothing to disk; NaN val acc marks it as a check, not a result.
         result = overfit_one_batch(model, train_loader, cfg, device)
         return {"best_val_acc": float("nan"), "run_dir": None, **result}
 
+    # Run ids name the grid cell, e.g. 'transformer_aug_s42' — one directory per run of
+    # the 12-run experiment grid ({arch} x {aug,noaug} x seeds 42/43/44).
     run_id = cfg.get("run_id") or (
         f"{cfg['arch']}_{'aug' if cfg.get('augment') else 'noaug'}_s{cfg['seed']}"
     )
     if shuffle_labels:
-        run_id = f"{run_id}_shufflelabels"
+        run_id = f"{run_id}_shufflelabels"  # never clobber a real run
     run_dir = Path(cfg.get("out_dir", "results/runs")) / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
+    # Snapshot the exact (post-override) config plus environment/commit provenance next to
+    # the results, so every run directory is self-describing.
     with open(run_dir / "config.yaml", "w", encoding="utf-8") as f:
         yaml.safe_dump(cfg, f, sort_keys=False)
     write_env_file(run_dir)
@@ -426,7 +479,7 @@ def main(argv: list[str] | None = None) -> None:
     with open(args.config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     if args.epochs is not None:
-        cfg["epochs"] = args.epochs
+        cfg["epochs"] = args.epochs  # override is recorded in the saved config.yaml snapshot
 
     run_training(
         cfg,

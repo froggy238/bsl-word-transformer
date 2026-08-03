@@ -19,6 +19,7 @@ from src.landmarks import (
     RIGHT_SHOULDER,
 )
 
+# Mirrors the schema of the real scraping metadata CSV (one row per downloaded clip).
 METADATA_COLUMNS = [
     "word", "clip_id", "source", "organisation", "signer_id", "source_url",
     "video_file", "resolution", "duration_s", "fps", "download_date", "notes",
@@ -29,6 +30,8 @@ def _synthetic_landmarks(t: int, seed: int = 0) -> np.ndarray:
     """Random (t, 105, 3) landmarks with constant, finite shoulders."""
     rng = np.random.default_rng(seed)
     seq = rng.uniform(0.2, 0.8, size=(t, N_LANDMARKS, N_COORDS)).astype(np.float32)
+    # Constant, symmetric shoulders make normalisation the same affine map in every
+    # frame — relied on by the gap-fill linearity check in test_load_clip below.
     seq[:, LEFT_SHOULDER] = [0.4, 0.5, 0.0]
     seq[:, RIGHT_SHOULDER] = [0.6, 0.5, 0.0]
     return seq
@@ -38,6 +41,7 @@ def _write_npz(
     path: Path, landmarks: np.ndarray, presence: np.ndarray, fps: float = 25.0
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Matches the on-disk .npz layout written by the landmark-extraction stage.
     np.savez(
         path,
         landmarks=landmarks.astype(np.float32),
@@ -53,6 +57,8 @@ def _write_npz(
 
 @pytest.mark.parametrize("t", [5, 64, 200])
 def test_resample_sequence_shape_and_endpoints(t: int) -> None:
+    # Build a signal linear in time (shared ramp + fixed per-landmark offsets):
+    # linear resampling should reproduce it exactly at any target length.
     offsets = np.random.default_rng(1).normal(size=(N_LANDMARKS, N_COORDS))
     ramp = np.linspace(0.0, 1.0, t, dtype=np.float64)[:, None, None]
     seq = (ramp + offsets[None]).astype(np.float32)
@@ -69,6 +75,7 @@ def test_resample_sequence_shape_and_endpoints(t: int) -> None:
 
 
 def test_resample_sequence_identity_length() -> None:
+    # target_len equal to the input length should be a (numerical) no-op.
     seq = _synthetic_landmarks(64)
     out = resample_sequence(seq, target_len=64)
     np.testing.assert_allclose(out, seq, atol=1e-6)
@@ -80,16 +87,19 @@ def test_resample_sequence_identity_length() -> None:
 
 
 def test_load_clip_fills_short_gap_and_zeroes_long_gap(tmp_path: Path) -> None:
+    # Pins the gap policy: gaps of <= 5 frames are linearly interpolated (plausible
+    # brief occlusions); longer gaps stay NaN through normalisation and only become
+    # 0 at the final NaN->0 step, so the model sees an explicit "absent" signal.
     t = 30
     landmarks = _synthetic_landmarks(t, seed=2)
     presence = np.ones((t, 3), dtype=np.float32)
 
     # 3-frame left-hand gap (frames 10-12): should be linearly interpolated.
     landmarks[10:13, LEFT_HAND_SLICE] = np.nan
-    presence[10:13, 0] = 0.0
+    presence[10:13, 0] = 0.0  # presence column 0 tracks the left-hand block
     # 8-frame right-hand gap (frames 18-25): > 5, stays NaN then becomes 0.
     landmarks[18:26, RIGHT_HAND_SLICE] = np.nan
-    presence[18:26, 1] = 0.0
+    presence[18:26, 1] = 0.0  # presence column 1 tracks the right-hand block
 
     path = tmp_path / "hello" / "hello_signbsl_001.npz"
     _write_npz(path, landmarks, presence)
@@ -145,6 +155,7 @@ def test_bsl_dataset_shapes_and_determinism(tmp_path: Path) -> None:
     )
 
     assert len(ds) == 2
+    # __getitem__ contract: (seq_len=64, 105*3=315) float32 features plus int label.
     features, label = ds[0]
     assert isinstance(features, torch.Tensor)
     assert features.shape == (64, 315)
@@ -154,6 +165,8 @@ def test_bsl_dataset_shapes_and_determinism(tmp_path: Path) -> None:
     _, label1 = ds[1]
     assert label1 == 1
 
+    # With augment=False the dataset must be fully deterministic: the validation
+    # loader has to yield identical tensors every epoch for comparable metrics.
     epoch_a = [ds[i] for i in range(len(ds))]
     epoch_b = [ds[i] for i in range(len(ds))]
     for (xa, ya), (xb, yb) in zip(epoch_a, epoch_b):
@@ -167,6 +180,8 @@ def test_bsl_dataset_shapes_and_determinism(tmp_path: Path) -> None:
 
 
 def _synthetic_metadata(tmp_path: Path) -> tuple[str, str, pd.DataFrame]:
+    # 5 words x 4 organisations x 2 clips = 40 rows; every organisation covers every
+    # word, so an organisation-grouped split can still contain all classes.
     words = ["hello", "thank-you", "please", "sorry", "help"]
     orgs = ["org-a", "org-b", "org-c", "org-d"]
     rows = []
@@ -209,18 +224,23 @@ def test_make_splits_grouped_and_deterministic(tmp_path: Path) -> None:
     assert splits["group_by"] == "organisation"
     assert splits["label_list"] == sorted(metadata["word"].unique().tolist())
 
+    # Partition property: train/val are disjoint and jointly cover every clip.
     train_ids, val_ids = set(splits["train"]), set(splits["val"])
     assert train_ids and val_ids
     assert not train_ids & val_ids
     assert train_ids | val_ids == set(metadata["clip_id"])
 
+    # Signer-independence guarantee: no organisation (a proxy for signer pool)
+    # appears on both sides of the split, preventing signer leakage into val.
     org_of = dict(zip(metadata["clip_id"], metadata["organisation"]))
     train_orgs = {org_of[c] for c in train_ids}
     val_orgs = {org_of[c] for c in val_ids}
     assert not train_orgs & val_orgs
 
+    # Grouped splits cannot hit val_frac exactly; accept a broad band around 0.2.
     frac = len(val_ids) / len(metadata)
     assert 0.1 <= frac <= 0.35
 
+    # Same seed -> identical split dict, so all runs in the grid share one split.
     again = make_splits(metadata_csv, vocabulary_csv, val_frac=0.2, seed=42)
     assert again == splits

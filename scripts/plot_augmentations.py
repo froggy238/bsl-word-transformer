@@ -19,11 +19,12 @@ from pathlib import Path
 
 import matplotlib
 
-matplotlib.use("Agg")
+matplotlib.use("Agg")  # headless backend; must be set before pyplot import
 
 import matplotlib.pyplot as plt
 import numpy as np
 
+# put the repo root on sys.path so `src` imports work when run as a plain script
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.augment import spatial_augment, temporal_augment  # noqa: E402
@@ -47,6 +48,9 @@ POSE_CONNECTIONS: list[tuple[int, int]] = [
 ]
 
 
+# src.augment gates each transform with `rng.random() < 0.5` in a fixed order, then draws its
+# parameters. Scripting the gate stream lets exactly the chosen augmentation fire per panel,
+# while parameter draws stay genuinely random (but seeded) so magnitudes look realistic.
 class SingleTransformRng:
     """Generator stand-in that fires exactly one scripted augmentation gate."""
 
@@ -55,8 +59,10 @@ class SingleTransformRng:
         self._inner = np.random.default_rng(seed)
 
     def random(self) -> float:
+        # gate draw: 0.25 always passes the p=0.5 threshold, 0.75 always fails it
         return 0.25 if self._gates.pop(0) else 0.75
 
+    # parameter draws delegate to a real seeded Generator, keeping the figure reproducible
     def uniform(self, low=0.0, high=1.0, size=None):
         return self._inner.uniform(low, high, size)
 
@@ -74,18 +80,22 @@ def _normalise(seq: np.ndarray) -> np.ndarray:
 
         return normalise_sequence(seq)
     except ImportError:  # pragma: no cover
+        # standalone fallback mirroring src.normalise: shoulder-midpoint origin plus xy
+        # shoulder-distance scale makes the plot invariant to signer position/camera zoom
         out = seq.astype(np.float32).copy()
-        mid = 0.5 * (out[:, LEFT_SHOULDER] + out[:, RIGHT_SHOULDER])
+        mid = 0.5 * (out[:, LEFT_SHOULDER] + out[:, RIGHT_SHOULDER])  # (T, 3) per frame
         dist = np.linalg.norm(
             out[:, LEFT_SHOULDER, :2] - out[:, RIGHT_SHOULDER, :2], axis=-1
         )
-        out -= mid[:, None, :]
-        out /= np.maximum(dist, 1e-6)[:, None, None]
+        out -= mid[:, None, :]  # (T,1,3) broadcasts across all 105 landmarks
+        out /= np.maximum(dist, 1e-6)[:, None, None]  # (T,1,1); epsilon avoids divide-by-zero
         return out
 
 
 def synthetic_sequence(t: int = 48) -> np.ndarray:
     """Plausible 105-landmark stick figure in image coords, waving one arm."""
+    # hand-placed MediaPipe pose indices in normalised image coords (origin top-left, y down),
+    # so the fallback normaliser and plotting treat it exactly like real extracted footage
     pose_xy = {
         0: (0.50, 0.20),
         1: (0.52, 0.18), 2: (0.53, 0.18), 3: (0.54, 0.18),
@@ -104,13 +114,14 @@ def synthetic_sequence(t: int = 48) -> np.ndarray:
         29: (0.57, 0.985), 30: (0.43, 0.985),
         31: (0.60, 0.99), 32: (0.40, 0.99),
     }
+    # 105-landmark contract: pose 0-32, left hand 33-53, right hand 54-74, mouth 75-104
     frame = np.zeros((105, 3), dtype=np.float32)
     for idx, (x, y) in pose_xy.items():
         frame[idx, 0], frame[idx, 1] = x, y
 
     # hand blocks: small clusters around each wrist
     ang = np.linspace(0.0, 2.0 * np.pi, 21, endpoint=False)
-    radius = 0.018 + 0.006 * np.cos(3 * ang)
+    radius = 0.018 + 0.006 * np.cos(3 * ang)  # 3-lobed blob reads as a hand, not a circle
     for block_start, wrist in ((33, LEFT_WRIST), (54, RIGHT_WRIST)):
         frame[block_start : block_start + 21, 0] = (
             frame[wrist, 0] + radius * np.cos(ang)
@@ -124,10 +135,11 @@ def synthetic_sequence(t: int = 48) -> np.ndarray:
     frame[75:105, 0] = 0.50 + 0.025 * np.cos(ang_m)
     frame[75:105, 1] = 0.23 + 0.012 * np.sin(ang_m)
 
-    seq = np.repeat(frame[None], t, axis=0)
+    seq = np.repeat(frame[None], t, axis=0)  # (105,3) -> (T,105,3) static clip
     # animate: right arm (elbow, wrist, fingers + right-hand block) waves
     phase = np.sin(np.linspace(0.0, 2.0 * np.pi, t)).astype(np.float32)
     moving = [14, 16, 18, 20, 22] + list(range(54, 75))
+    # phase (T,) -> (T,1) so it broadcasts across the selected landmark indices
     seq[:, moving, 0] -= 0.08 * phase[:, None]
     seq[:, moving, 1] -= 0.10 * np.abs(phase)[:, None]
     return seq.astype(np.float32)
@@ -140,6 +152,8 @@ def load_npz_sequence(path: str) -> np.ndarray:
 
 def plot_skeleton(ax, frame: np.ndarray, title: str, ref: np.ndarray | None = None) -> None:
     """Scatter all 105 points and draw limb lines for the pose block."""
+    # grey reference (zorder 1) is drawn first so the augmented skeleton (zorder 2-3) sits on
+    # top; the offset between grey and colour shows exactly what the augmentation did
     if ref is not None:
         pose_ref = ref[POSE_SLICE]
         for a, b in POSE_CONNECTIONS:
@@ -172,12 +186,14 @@ def main() -> None:
     args = parser.parse_args()
 
     seq = load_npz_sequence(args.npz) if args.npz else synthetic_sequence()
+    # same preprocessing as training: per-frame normalise, then NaN->0 for undetected blocks
     seq = np.nan_to_num(_normalise(seq)).astype(np.float32)
     t = seq.shape[0]
     frame_idx = args.frame if args.frame is not None else t // 2
     base = seq[frame_idx]
 
     # apply each spatial transform in isolation via a scripted gate sequence
+    # (gate order is fixed inside spatial_augment: rotate, scale, translate, jitter)
     single = {
         "Rotation (±15°)": [True, False, False, False],
         "Scale (0.9–1.1)": [False, True, False, False],
@@ -186,12 +202,15 @@ def main() -> None:
     }
     fig, axes = plt.subplots(2, 3, figsize=(13, 8))
     plot_skeleton(axes[0, 0], base, f"Original (frame {frame_idx}/{t})")
+    # dict insertion order pairs each title with its gate pattern and its grid panel
     for ax, (title, gates) in zip(axes.flat[1:5], single.items()):
         aug = spatial_augment(seq, SingleTransformRng(gates, seed=args.seed))
         plot_skeleton(ax, aug[frame_idx], title, ref=base)
 
     # temporal panel: right-wrist x trajectory, original vs speed-resampled
     ax_t = axes[1, 2]
+    # gates [True, True]: first passes temporal_augment's "apply anything" p=0.5 check, the
+    # second selects the speed-resample branch rather than random frame dropping
     aug_t = temporal_augment(seq, SingleTransformRng([True, True], seed=args.seed))
     ax_t.plot(np.linspace(0, 1, t), seq[:, RIGHT_WRIST, 0], label=f"original ({t} frames)")
     ax_t.plot(
@@ -207,7 +226,7 @@ def main() -> None:
     ax_t.tick_params(labelsize=7)
 
     fig.suptitle("Augmentation sanity check (grey = original)", fontsize=12)
-    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    fig.tight_layout(rect=(0, 0, 1, 0.96))  # reserve the top 4% for the suptitle
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=150)

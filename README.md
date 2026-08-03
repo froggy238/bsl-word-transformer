@@ -53,7 +53,6 @@ bsl-word-transformer/
 ├── notebooks/
 │   ├── eda.ipynb             # exploratory data analysis + split creation
 │   ├── results.ipynb         # regenerates every dissertation figure/table
-│   ├── run_all_colab.ipynb   # one-shot Colab run of the full pipeline
 │   └── train_colab.ipynb     # GPU training of the full grid on Google Colab
 ├── src/
 │   ├── landmarks.py          # landmark index constants (105-point subset)
@@ -99,7 +98,9 @@ pytest            # sanity: full test suite runs with no data downloaded
    ```
 
 3. **Extract landmarks** with MediaPipe Holistic into cached `.npz` files
-   (repeat with `--videos data/test_videos --out data/test_landmarks` for the held-out test set):
+   (the held-out test partitions are produced later: `data/test_landmarks/` by
+   `python -m src.make_v2_partition`, and the SignBank set by the extract command
+   in the v2 section below):
 
    ```bash
    python -m src.extract --videos data/raw_videos --out data/landmarks
@@ -155,8 +156,45 @@ pytest            # sanity: full test suite runs with no data downloaded
     python app/app.py
     ```
 
+    The demonstrator is deployed publicly at
+    <https://huggingface.co/spaces/paperfrog/bsl-word-recognition> (Gradio 6,
+    CPU hardware; the Space sleeps when idle and wakes in about a minute).
+
 Finally, `notebooks/results.ipynb` regenerates every dissertation figure and table from
 `results/runs/*`.
+
+## v2 held-out evaluation (2026-07-27)
+
+The self-recorded test set originally planned in the methodology was replaced by a
+re-sourced two-part held-out evaluation (rationale and caveats: `decision_log.md`):
+
+1. **Organisation-held-out one-shot test** — the three v1 validation organisations
+   (69 clips, never trained on) became the test partition; model selection moved to a
+   new clip-stratified validation split and the 12-run grid was re-trained against it:
+
+   ```bash
+   python -m src.make_v2_partition   # writes data/splits_v2.json, data/test_landmarks/, configs_v2/
+   for cfg in configs_v2/*.yaml; do python -m src.train --config "$cfg"; done
+   python scripts/summarise_v2.py    # per-group selection -> results/validation_summary_v2.csv
+   python -m src.evaluate --checkpoint results/runs_v2/<best_run>/best.pt --split test
+   ```
+
+2. **BSL SignBank cross-corpus one-shot test** — 100 citation-form clips (all 50 words)
+   from UCL BSL SignBank, downloaded under UCL's written permission, manifest and
+   per-file provenance committed (`data/signbank_gloss_map*.csv`,
+   `data/signbank_metadata.csv`):
+
+   ```bash
+   python -m src.download_signbank --manifest data/signbank_gloss_map_curated.csv
+   python -m src.extract --videos data/test_videos_signbank --out data/test_landmarks_signbank
+   python -m src.evaluate --checkpoint results/runs_v2/<best_run>/best.pt --split test --landmarks-dir data/test_landmarks_signbank
+   python scripts/signbank_subset.py  # high-confidence / sense-flag subset analysis
+   ```
+
+Each test partition was evaluated exactly once per finally-selected model; the outputs
+are preserved under `results/runs_v2/<run>/eval_test_orgheldout/` and
+`eval_test_signbank/`. Section 18 of `notebooks/full_pipeline.ipynb` walks the whole v2
+evaluation with the same guards as the rest of the notebook.
 
 ## Sanity checks
 

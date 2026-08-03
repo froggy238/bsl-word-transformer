@@ -44,13 +44,17 @@ def resample_sequence(seq: np.ndarray, target_len: int = 64) -> np.ndarray:
     if t == 0:
         raise ValueError("cannot resample an empty sequence")
     if t == 1:
-        return np.repeat(seq, target_len, axis=0).astype(np.float32)
+        return np.repeat(seq, target_len, axis=0).astype(np.float32)  # single frame: just tile
 
+    # Fractional source positions: pos[0] = 0 and pos[-1] = t-1 exactly, so the
+    # first and last frames are preserved and nothing is ever extrapolated.
     pos = np.linspace(0.0, t - 1, num=target_len)
-    lo = np.floor(pos).astype(np.int64)
-    hi = np.minimum(lo + 1, t - 1)
+    lo = np.floor(pos).astype(np.int64)  # source frame at or just before each position
+    hi = np.minimum(lo + 1, t - 1)  # next frame, clamped so pos = t-1 stays in bounds
+    # Fractional part is the blend weight; (target_len,) -> (target_len, 1, 1)
+    # so it broadcasts over the gathered (target_len, 105, 3) frame stacks.
     w = (pos - lo).astype(np.float32)[:, None, None]
-    out = (1.0 - w) * seq[lo] + w * seq[hi]
+    out = (1.0 - w) * seq[lo] + w * seq[hi]  # seq[lo]/seq[hi] fancy-index whole frames
     return out.astype(np.float32)
 
 
@@ -68,6 +72,10 @@ def load_clip(npz_path: str | Path) -> np.ndarray:
     with np.load(npz_path) as data:
         landmarks = data["landmarks"].astype(np.float32)
         presence = data["presence"].astype(np.float32)
+    # Order matters: interpolate while NaN still marks missing detections, then
+    # normalise (which needs real coordinates for the shoulder origin/scale),
+    # and only then zero the long-gap NaNs so absent blocks sit at the neutral
+    # origin (post-normalisation zero = shoulder midpoint).
     seq = fill_gaps(landmarks, presence)
     seq = normalise_sequence(seq)
     return np.nan_to_num(seq, nan=0.0).astype(np.float32)
@@ -75,6 +83,8 @@ def load_clip(npz_path: str | Path) -> np.ndarray:
 
 def clip_id_to_word(clip_id: str) -> str:
     """Recover the label word from a clip id of the form {word}_{source}_{nnn}."""
+    # rsplit from the right strips only the {source}_{nnn} suffix, so a word
+    # that itself contains underscores still round-trips correctly.
     return clip_id.rsplit("_", 2)[0]
 
 
@@ -120,12 +130,19 @@ class BSLDataset(Dataset):
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, int]:
         clip_id = self.clip_ids[index]
-        seq = load_clip(self.npz_path(clip_id))
+        seq = load_clip(self.npz_path(clip_id))  # (T, 105, 3), normalised, NaN-free
+        # Temporal augmentation runs on the native-length clip BEFORE resampling,
+        # so speed warps/crops genuinely change which frames land on the fixed
+        # 64-frame grid rather than being flattened out by the resample.
         if self.augment:
             seq = temporal_augment(seq, self.rng)
-        seq = resample_sequence(seq, self.seq_len)
+        seq = resample_sequence(seq, self.seq_len)  # (T, 105, 3) -> (64, 105, 3)
+        # Spatial jitter is per-frame and length-independent, so it runs AFTER
+        # resampling, on the fixed-size array.
         if self.augment:
             seq = spatial_augment(seq, self.rng)
+        # (64, 105, 3) -> (64, 315): one flat feature vector per frame, made
+        # contiguous so torch.from_numpy can wrap the buffer without copying.
         features = np.ascontiguousarray(
             seq.reshape(self.seq_len, FEATURES_PER_FRAME), dtype=np.float32
         )
@@ -139,6 +156,8 @@ def _grouped_split(
     seed: int,
 ) -> dict:
     """One candidate organisation-grouped split for a given shuffle seed."""
+    # Sort before shuffling so the permutation depends only on the seed, not on
+    # pandas' incidental row order — candidate splits are fully reproducible.
     orgs = sorted(metadata["organisation"].astype(str).unique().tolist())
     if len(orgs) < 2:
         raise ValueError("need at least 2 organisations for a grouped split")
@@ -149,7 +168,7 @@ def _grouped_split(
         "clip_id"
     ].count()
     total = int(len(metadata))
-    target = val_frac * total
+    target = val_frac * total  # desired number of val clips (may be fractional)
 
     # Size-aware greedy fill: an organisation joins val only if that brings
     # the val clip count strictly closer to the target, so one large source
@@ -163,6 +182,7 @@ def _grouped_split(
             val_count += count
     if not val_orgs:
         # Every organisation overshoots the target; take the smallest.
+        # The (count, name) key breaks size ties alphabetically — deterministic.
         smallest = min(orgs, key=lambda o: (int(org_counts[o]), o))
         val_orgs.append(smallest)
         val_count = int(org_counts[smallest])
@@ -172,10 +192,13 @@ def _grouped_split(
         val_orgs.remove(moved)
         val_count -= int(org_counts[moved])
 
+    # Membership is decided per ORGANISATION, never per clip: every signer's
+    # clips fall wholly on one side, which is what prevents signer leakage.
     is_val = metadata["organisation"].astype(str).isin(set(val_orgs))
     words = metadata["word"].astype(str)
     train_words = set(words[~is_val])
     val_words = set(words[is_val])
+    # missing_* record class-coverage gaps so make_splits can rank seeds and warn.
     return {
         "seed": seed,
         "val_orgs": val_orgs,
@@ -220,6 +243,8 @@ def make_splits(
     vocabulary = pd.read_csv(vocabulary_csv)
     label_list = sorted(vocabulary["word"].astype(str).unique().tolist())
 
+    # Explicit override path: honour the requested val organisations verbatim
+    # (no shuffle or seed search) after checking they exist in the metadata.
     if val_orgs is not None:
         known = set(metadata["organisation"].astype(str))
         unknown = sorted(set(val_orgs) - known)
@@ -245,6 +270,9 @@ def make_splits(
         best_key: tuple | None = None
         for s in candidate_seeds:
             result = _grouped_split(metadata, label_list, val_frac, s)
+            # Lexicographic ranking: full train coverage dominates, then val
+            # coverage, then closeness to val_frac; the seed itself is the
+            # final deterministic tie-break. The smaller tuple wins.
             key = (
                 len(result["missing_train"]),
                 len(result["missing_val"]),
@@ -260,6 +288,9 @@ def make_splits(
             f"seed search over {search_seeds} shuffles: chose seed "
             f"{best['seed']} (val orgs: {', '.join(best['val_orgs'])})"
         )
+    # Coverage gaps are both printed and warnings.warn-ed so they surface in
+    # interactive runs and in captured/test logs alike; a class with zero train
+    # clips can never be learnt, hence the loud wording.
     if best["missing_train"]:
         msg = (
             f"{len(best['missing_train'])} class(es) have ZERO training "
@@ -355,6 +386,8 @@ def main() -> None:
                 else None
             ),
         )
+        # Persist to JSON once; train/eval scripts reload this exact partition,
+        # so the grouped split is frozen rather than recomputed on every run.
         out_path = Path(args.out)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with open(out_path, "w", encoding="utf-8") as f:

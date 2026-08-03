@@ -16,6 +16,8 @@ from src.evaluate import (
 
 def _paired_correct(b: int, c: int, both_right: int = 5, both_wrong: int = 4):
     """Build paired correctness arrays with exactly b/c discordant pairs."""
+    # b = clips only model A got right, c = clips only model B got right; concordant
+    # pairs are padding — McNemar's test conditions on discordant pairs alone.
     a = np.array([1] * both_right + [0] * both_wrong + [1] * b + [0] * c, dtype=bool)
     b_arr = np.array([1] * both_right + [0] * both_wrong + [0] * b + [1] * c,
                      dtype=bool)
@@ -31,6 +33,7 @@ class TestMcNemar:
         assert res["n_discordant"] == 12
         # Exact two-sided p for Binom(12, 0.5): 2 * P(X <= 2) = 158/4096.
         assert res["exact_p"] == pytest.approx(158 / 4096)
+        # Cross-check against scipy's exact binomial test as an independent oracle.
         assert res["exact_p"] == pytest.approx(
             binomtest(2, 12, 0.5, alternative="two-sided").pvalue
         )
@@ -40,6 +43,7 @@ class TestMcNemar:
         assert res["exact_p"] < 0.05  # significant at alpha=0.05
 
     def test_equal_discordant_counts_give_p_one(self):
+        # b == c is exactly the null hypothesis; the two-sided exact p must be 1.
         a, b_arr = _paired_correct(5, 5)
         res = mcnemar_test(a, b_arr)
         assert res["b"] == 5
@@ -47,6 +51,7 @@ class TestMcNemar:
         assert res["exact_p"] == pytest.approx(1.0)
 
     def test_no_discordant_pairs(self):
+        # Degenerate case — the models agree on every clip; must not divide by zero.
         a, b_arr = _paired_correct(0, 0)
         res = mcnemar_test(a, b_arr)
         assert res == {
@@ -55,6 +60,8 @@ class TestMcNemar:
         }
 
     def test_symmetric_in_model_order(self):
+        # Swapping model order must swap b and c but leave the p-value unchanged —
+        # the transformer-vs-LSTM comparison cannot depend on argument order.
         a, b_arr = _paired_correct(10, 2)
         res_ab = mcnemar_test(a, b_arr)
         res_ba = mcnemar_test(b_arr, a)
@@ -73,6 +80,8 @@ class TestMcNemar:
 
 
 class TestAlignPredictions:
+    # Prediction CSVs from separate runs need not share row order; alignment must
+    # key on clip_id so McNemar pairs the same test clip across the two models.
     def test_aligns_on_clip_id_regardless_of_row_order(self):
         df_a = pd.DataFrame(
             {"clip_id": ["hello_signbsl_001", "cat_signbsl_001", "dog_signbsl_001"],
@@ -89,6 +98,7 @@ class TestAlignPredictions:
         assert res["c"] == 1
 
     def test_inner_join_drops_unmatched_clips(self):
+        # Clips missing from either file are dropped (inner join), not zero-filled.
         df_a = pd.DataFrame({"clip_id": ["a_x_001", "b_x_001"], "correct": [1, 0]})
         df_b = pd.DataFrame({"clip_id": ["b_x_001"], "correct": [1]})
         ca, cb = align_predictions(df_a, df_b)
@@ -125,10 +135,12 @@ class TestTopkAccuracy:
         assert compute_topk_accuracy(logits, labels, 1) == 1.0
 
     def test_k_equal_n_classes_is_always_one(self):
+        # With k = n_classes every label is trivially in the top-k.
         assert compute_topk_accuracy(self.LOGITS, self.LABELS, 5) == 1.0
 
 
 class TestMacroF1:
+    # Macro-F1 weights every word equally, so rare signs count as much as common ones.
     def test_hand_computed_three_classes(self):
         # preds = [0, 1, 1, 1] for labels [0, 0, 1, 2]:
         # class 0: P=1, R=1/2 -> F1=2/3; class 1: P=1/3, R=1 -> F1=1/2;

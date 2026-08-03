@@ -24,6 +24,8 @@ With x, y, z per landmark a frame flattens to 315 features
 (FEATURES_PER_FRAME).
 """
 
+# Block sizes. Every downstream layout number (slice offsets, the 105 total,
+# the 315 flat features) is derived from these, keeping the layout consistent.
 POSE_N = 33
 HAND_N = 21
 MOUTH_N = 30
@@ -31,6 +33,10 @@ N_LANDMARKS = POSE_N + 2 * HAND_N + MOUTH_N  # 105
 N_COORDS = 3
 FEATURES_PER_FRAME = N_LANDMARKS * N_COORDS  # 315
 
+# Contiguous views into axis 1 of a (T, 105, 3) array; offsets are the running
+# sums of the block sizes above. MediaPipe detects or misses each hand/mouth as
+# a whole unit per frame, so extraction writes (and gap interpolation fills)
+# entire blocks at once via these slices.
 POSE_SLICE = slice(0, 33)
 LEFT_HAND_SLICE = slice(33, 54)
 RIGHT_HAND_SLICE = slice(54, 75)
@@ -38,11 +44,19 @@ MOUTH_SLICE = slice(75, 105)
 
 # Indices into the 105-landmark array (pose block comes first, so these
 # coincide with MediaPipe's pose indices for the shoulders).
+# normalise.py anchors every frame on these two points: their midpoint becomes
+# the origin and their xy distance the scale, removing signer position and
+# camera-zoom effects so features transfer across signers and recordings.
 LEFT_SHOULDER = 11
 RIGHT_SHOULDER = 12
 
 # Fixed indices into MediaPipe's 468-point face mesh:
 # 20 outer-lip points followed by 10 inner-lip points.
+# Listed explicitly because lip points are scattered across the 468-point mesh
+# (its numbering is spatial history, not semantic -- there is no contiguous
+# "lips" index range). Hard-coding the order (outer contour, then inner) pins
+# every feature position across all extracted videos, which the trained models
+# depend on: reordering would silently scramble the mouth features.
 MOUTH_FACE_INDICES: list[int] = [
     # Outer lip contour (20 points).
     61, 146, 91, 181, 84, 17, 314, 405, 321, 375,
@@ -51,4 +65,5 @@ MOUTH_FACE_INDICES: list[int] = [
     78, 88, 87, 317, 318, 308, 310, 312, 82, 80,
 ]
 
+# Import-time guard: an accidental edit to the list fails loudly, not silently.
 assert len(MOUTH_FACE_INDICES) == MOUTH_N

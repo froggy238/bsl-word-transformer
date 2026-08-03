@@ -5,6 +5,8 @@
 data/raw_videos/
 data/test_videos/
 data/test_landmarks/
+data/test_videos_signbank/
+data/test_landmarks_signbank/
 
 # Experiment outputs
 results/
@@ -17,6 +19,10 @@ app/model/
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+
+# Local scratch notebooks
+notebooks/cuda_check.ipynb
+notebooks/Untitled.ipynb
 
 # Environments
 .venv/

@@ -4,7 +4,7 @@ emoji: "\U0001F450"
 colorFrom: blue
 colorTo: indigo
 sdk: gradio
-sdk_version: 4.44.1
+sdk_version: 6.20.0
 app_file: app.py
 pinned: false
 license: mit
@@ -29,18 +29,22 @@ communication-critical purpose.
 
 Source code: [GitHub repository](https://github.com/froggy238/bsl-word-transformer)
 
+Live Space: <https://huggingface.co/spaces/paperfrog/bsl-word-recognition>
+(deployed 2026-08-02; CPU hardware sleeps when idle and wakes in about a minute).
+
 ## Usage
 
-1. Upload — or record with your webcam — a 2–3 second clip of a single BSL
+1. Upload, or record via webcam, a 2–3 second clip of a single BSL
    sign (one signer facing the camera, upper body and both hands visible).
 2. Click **Recognise**.
 3. The top-5 predicted signs are shown with confidences, along with landmark
    detection statistics for the clip.
 
-## Deploying this Space
+## Redeploying this Space
 
-The app expects the shared `src/` package and a trained checkpoint next to
-`app.py`. From the project repository root:
+The Space above was deployed from this repository. For a redeployment, the app
+expects the shared `src/` package and a trained checkpoint next to `app.py`.
+From the project repository root:
 
 1. Create a new Gradio Space (CPU hardware is sufficient).
 2. Copy into the Space repository root:
@@ -48,8 +52,8 @@ The app expects the shared `src/` package and a trained checkpoint next to
    - `app/requirements.txt` as `requirements.txt`
    - `app/README.md` as `README.md`
    - the whole `src/` directory as `src/`
-3. Copy your best trained checkpoint (e.g.
-   `results/runs/transformer_aug_s42/best.pt`) to `model/best.pt` in the
+3. Copy the selected trained checkpoint (the deployed Space uses
+   `results/runs_v2/transformer_noaug_s42/best.pt`) to `model/best.pt` in the
    Space (i.e. `app/model/best.pt` when running from the project repo).
    Alternatively set the `BSL_CHECKPOINT` environment variable (a Space
    *Variable*) to a checkpoint path.
