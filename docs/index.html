@@ -162,31 +162,6 @@
 
 <div class="pipe" id="flow" style="margin-bottom:20px"></div>
 
-<div class="filters" id="filters">
-  <div class="filter"><label>Test set</label><div class="seg" data-f="test">
-    <button data-v="all" class="on">Both</button>
-    <button data-v="0">Organisation-held-out</button>
-    <button data-v="1">SignBank cross-corpus</button></div></div>
-  <div class="filter"><label>Model</label><div class="seg" data-f="model">
-    <button data-v="all" class="on">All</button>
-    <button data-v="0">Transformer (no aug)</button>
-    <button data-v="1">Transformer (aug)</button>
-    <button data-v="2">LSTM (aug)</button>
-    <button data-v="3">LSTM (no aug)</button></div></div>
-  <div class="filter"><label>SignBank gloss match</label><div class="seg" data-f="conf">
-    <button data-v="all" class="on">All clips</button>
-    <button data-v="1" id="confHigh">Exact-keyword only</button></div></div>
-</div>
-
-<div class="tiles">
-  <div class="tile"><div class="v" id="kTop1">–</div><div class="k">top-1 accuracy (chance 2%)</div></div>
-  <div class="tile"><div class="v" id="kTop5">–</div><div class="k">top-5 accuracy</div></div>
-  <div class="tile"><div class="v" id="kClips">–</div><div class="k" id="kClipsLbl">clips in view</div></div>
-  <div class="tile"><div class="v">p = 0.0215</div><div class="k">McNemar exact, transformer vs LSTM — significant on both test sets</div></div>
-  <div class="tile"><div class="v ok">44.3 fps ✓</div><div class="k">end-to-end throughput (criterion ≥ 15 fps)</div></div>
-  <div class="tile"><div class="v ok">2.08 ms ✓</div><div class="k">median per-window latency (criterion &lt; 100 ms)</div></div>
-</div>
-
 <div class="card" id="dsCard">
   <h2>Dataset</h2>
   <p class="note">293 dictionary clips over a 50-word vocabulary, located via SignBSL.com and attributed to 14 contributing organisations — the organisation is the signer proxy for all grouping decisions. Three organisations were withheld from training entirely and form the one-shot test partition; a further 100 clips from the publicly accessible UCL BSL SignBank provide a cross-corpus test with genuinely unseen signers. Only derived landmarks are publicly redistributed.</p>
@@ -215,6 +190,31 @@
   <h3 style="font-size:13px;margin:16px 0 6px;color:var(--ink-2)">Preprocessing pipeline (per clip)</h3>
   <div class="pipe" id="pipe"></div>
   <p class="note" style="margin-top:8px">Raw video is discarded after extraction — everything downstream is landmark-only. During training, temporal augmentation (speed ×0.8–1.2 or frame dropping) runs before the resample and spatial augmentation (rotate, scale, translate, jitter) after it, each with p&nbsp;=&nbsp;0.5; the identical unaugmented path runs at inference.</p>
+</div>
+
+<div class="filters" id="filters">
+  <div class="filter"><label>Test set</label><div class="seg" data-f="test">
+    <button data-v="all" class="on">Both</button>
+    <button data-v="0">Organisation-held-out</button>
+    <button data-v="1">SignBank cross-corpus</button></div></div>
+  <div class="filter"><label>Model</label><div class="seg" data-f="model">
+    <button data-v="all" class="on">All</button>
+    <button data-v="0">Transformer (no aug)</button>
+    <button data-v="1">Transformer (aug)</button>
+    <button data-v="2">LSTM (aug)</button>
+    <button data-v="3">LSTM (no aug)</button></div></div>
+  <div class="filter"><label>SignBank gloss match</label><div class="seg" data-f="conf">
+    <button data-v="all" class="on">All clips</button>
+    <button data-v="1" id="confHigh">Exact-keyword only</button></div></div>
+</div>
+
+<div class="tiles">
+  <div class="tile"><div class="v" id="kTop1">–</div><div class="k">top-1 accuracy (chance 2%)</div></div>
+  <div class="tile"><div class="v" id="kTop5">–</div><div class="k">top-5 accuracy</div></div>
+  <div class="tile"><div class="v" id="kClips">–</div><div class="k" id="kClipsLbl">clips in view</div></div>
+  <div class="tile"><div class="v">p = 0.0215</div><div class="k">McNemar exact, transformer vs LSTM — significant on both test sets</div></div>
+  <div class="tile"><div class="v ok">44.3 fps ✓</div><div class="k">end-to-end throughput (criterion ≥ 15 fps)</div></div>
+  <div class="tile"><div class="v ok">2.08 ms ✓</div><div class="k">median per-window latency (criterion &lt; 100 ms)</div></div>
 </div>
 
 <div class="card" id="resultsCard">
