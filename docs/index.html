@@ -112,6 +112,15 @@
     border: 1px solid var(--ring); color: var(--ink-2); }
   .chip.ok { color: var(--good-text); border-color: color-mix(in srgb, var(--good) 45%, transparent); }
 
+  .pipe { display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch; }
+  .pstep { flex: 1; min-width: 132px; background: var(--plane); border: 1px solid var(--ring);
+    border-radius: 10px; padding: 9px 11px; }
+  .pstep b { display: block; font-size: 12.5px; margin-bottom: 2px; }
+  .pstep span { font-size: 11px; color: var(--muted); line-height: 1.3; display: block; }
+  .pstep.out { border-color: color-mix(in srgb, var(--s1) 55%, transparent); }
+  .pstep.out b { color: var(--s1); }
+  .parrow { align-self: center; color: var(--axis); font-size: 15px; }
+
   .tooltip { position: fixed; pointer-events: none; background: var(--ink);
     color: var(--plane); font-size: 12px; padding: 5px 9px; border-radius: 6px;
     transform: translate(-50%, -130%); white-space: nowrap; z-index: 10; display: none; }
@@ -184,6 +193,9 @@
       <p class="note" style="margin-top:12px">Data quality varies sharply by source: at least one hand goes undetected in roughly 30% of SignBSL frames (0–82% by organisation) but only 2.3% of SignBank studio frames. The pipeline absorbs gaps by short-run interpolation with per-frame presence flags rather than discarding clips.</p>
     </div>
   </div>
+  <h3 style="font-size:13px;margin:16px 0 6px;color:var(--ink-2)">Preprocessing pipeline (per clip)</h3>
+  <div class="pipe" id="pipe"></div>
+  <p class="note" style="margin-top:8px">Raw video is discarded after extraction — everything downstream is landmark-only. During training, temporal augmentation (speed ×0.8–1.2 or frame dropping) runs before the resample and spatial augmentation (rotate, scale, translate, jitter) after it, each with p&nbsp;=&nbsp;0.5; the identical unaugmented path runs at inference.</p>
 </div>
 
 <div class="card">
@@ -384,6 +396,38 @@ const ORGS = [
   ["winkball", 3, 0], ["wolver", 2, 0], ["deafsigns", 1, 0], ["ict", 1, 0],
 ];
 
+const PIPE = [
+  ["Video", "dictionary or webcam clip",
+   "Any resolution and length; nothing is resized or cropped — landmarks are resolution-independent."],
+  ["Holistic extraction", "105-landmark subset per frame",
+   "MediaPipe Holistic 0.10.9, fresh instance per clip: 33 pose + 21 per hand + 30 mouth points; undetected blocks stored as NaN with per-frame presence flags. Raw video is discarded here."],
+  ["Gap fill", "interpolate runs ≤ 5 frames",
+   "Short detection gaps bounded by real detections are linearly interpolated (tracking flicker); longer or edge gaps stay NaN — genuine absence is never invented."],
+  ["Normalise", "shoulder-centred frame",
+   "Per frame: shoulder midpoint becomes the origin, coordinates divide by shoulder distance — invariant to signer position and camera zoom (unit-tested)."],
+  ["NaN → 0 · resample", "fixed 64 frames",
+   "Remaining gaps become zeros only after normalisation (the neutral origin marks 'missing'), then linear temporal resampling to 64 frames with endpoints preserved."],
+  ["64 × 315 features", "model input",
+   "Each frame's 105×3 landmarks flatten to a 315-vector; the same matrix feeds both the transformer and the LSTM."],
+];
+
+function pipeChart() {
+  const host = document.getElementById("pipe");
+  PIPE.forEach(([t, sub, tipText], i) => {
+    if (i) {
+      const a = document.createElement("div");
+      a.className = "parrow";
+      a.textContent = "→";
+      host.appendChild(a);
+    }
+    const s = document.createElement("div");
+    s.className = "pstep" + (i === PIPE.length - 1 ? " out" : "");
+    s.innerHTML = `<b>${t}</b><span>${sub}</span>`;
+    hover(s, () => tipText);
+    host.appendChild(s);
+  });
+}
+
 function orgChart() {
   const host = document.getElementById("orgChart");
   const max = ORGS[0][1];
@@ -491,7 +535,7 @@ document.getElementById("filters").addEventListener("click", e => {
 
 function render() { kpis(); modelChart(); wordChart(); confusion(); }
 
-orgChart(); splitStrip(); sbStats(); latChart(); valTable(); aggTable(); syncSegs(); render();
+pipeChart(); orgChart(); splitStrip(); sbStats(); latChart(); valTable(); aggTable(); syncSegs(); render();
 </script>
 </body>
 </html>
