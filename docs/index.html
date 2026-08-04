@@ -112,6 +112,21 @@
     border: 1px solid var(--ring); color: var(--ink-2); }
   .chip.ok { color: var(--good-text); border-color: color-mix(in srgb, var(--good) 45%, transparent); }
 
+  .rqs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+  @media (max-width: 860px) { .rqs { grid-template-columns: 1fr; } }
+  .rq { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px;
+    padding: 12px 14px; cursor: pointer; }
+  .rq:hover { border-color: color-mix(in srgb, var(--s1) 40%, transparent); }
+  .rq .head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .rq .badge { width: 24px; height: 24px; border-radius: 50%; color: #fff; flex: none;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 13px; }
+  .rq .badge.yes { background: var(--good); }
+  .rq .badge.no { background: var(--crit); }
+  .rq b { font-size: 13.5px; }
+  .rq .q { color: var(--ink-2); font-size: 12.5px; margin-bottom: 4px; }
+  .rq .a { font-size: 12.5px; }
+
   .pipe { display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch; }
   .pstep { flex: 1; min-width: 132px; background: var(--plane); border: 1px solid var(--ring);
     border-radius: 10px; padding: 9px 11px; }
@@ -142,6 +157,8 @@
     <a href="https://github.com/froggy238/bsl-word-transformer">code &amp; data</a> ·
     <a href="https://huggingface.co/spaces/paperfrog/bsl-word-recognition">live demonstrator</a></p>
 </header>
+
+<div class="rqs" id="rqs"></div>
 
 <div class="pipe" id="flow" style="margin-bottom:20px"></div>
 
@@ -398,6 +415,37 @@ const ORGS = [
   ["winkball", 3, 0], ["wolver", 2, 0], ["deafsigns", 1, 0], ["ict", 1, 0],
 ];
 
+const RQS = [
+  ["yes", "RQ1 — Architecture",
+   "Does a from-scratch transformer beat a parameter-matched LSTM on landmark sequences?",
+   "Yes — statistically significant on both held-out test sets (McNemar exact p = 0.0215).",
+   "13.0% and 14.0% top-1 for the transformer against 1.4% and 6.0% for the LSTM; discordant pairs b = 9, c = 1 on each test.", "resultsCard"],
+  ["no", "RQ2 — Augmentation",
+   "Does landmark-space augmentation improve unseen-signer accuracy?",
+   "No — no measurable gain in any condition; reported as an honest negative finding.",
+   "Augmentation harmed the organisation-held-out result (8.7% vs 13.0%) and tied on SignBank (14.0%); geometric perturbations do not mimic signer variation at this data scale.", "resultsCard"],
+  ["yes", "RQ3 — Real time",
+   "Can the full pipeline run in real time on a commodity CPU?",
+   "Yes — 44.3 fps end-to-end and 2.08 ms per classification; live as a public web demonstrator.",
+   "Both pre-registered criteria passed (≥ 15 fps, < 100 ms) over 1,000 frames; MediaPipe Holistic dominates the budget at ~21 ms per frame.", "latCard"],
+];
+
+function rqChart() {
+  const host = document.getElementById("rqs");
+  RQS.forEach(([verdict, tag, q, a, tipText, target]) => {
+    const c = document.createElement("div");
+    c.className = "rq";
+    c.innerHTML = `<div class="head"><span class="badge ${verdict}">${verdict === "yes" ? "✓" : "✗"}</span><b>${tag}</b></div>
+      <div class="q">${q}</div><div class="a">${a}</div>`;
+    hover(c, () => tipText);
+    c.addEventListener("click", () => {
+      const el = document.getElementById(target);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    host.appendChild(c);
+  });
+}
+
 const FLOW = [
   ["Collect", "293 dictionary clips · 14 sources",
    "Polite, rate-limited retrieval of publicly listed SignBSL.com clips with per-clip provenance; 100 further clips from UCL BSL SignBank form the cross-corpus test.", "dsCard"],
@@ -576,7 +624,7 @@ document.getElementById("filters").addEventListener("click", e => {
 
 function render() { kpis(); modelChart(); wordChart(); confusion(); }
 
-flowChart(); pipeChart(); orgChart(); splitStrip(); sbStats(); latChart(); valTable(); aggTable(); syncSegs(); render();
+rqChart(); flowChart(); pipeChart(); orgChart(); splitStrip(); sbStats(); latChart(); valTable(); aggTable(); syncSegs(); render();
 </script>
 </body>
 </html>
