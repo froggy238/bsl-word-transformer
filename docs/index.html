@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BSL Word Recognition — Results Explorer</title>
+<meta name="description" content="Interactive results for a pose-based transformer recognising 50 British Sign Language words: two one-shot held-out tests, per-word accuracy, confusion explorer and latency profile.">
+<style>
+  :root { color-scheme: light dark; }
+  .viz-root {
+    color-scheme: light;
+    --plane: #f9f9f7; --surface: #fcfcfb;
+    --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+    --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,0.10);
+    --s1: #2a78d6; --s2: #eb6834;
+    --good: #0ca30c; --good-text: #006300; --crit: #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --plane: #0d0d0d; --surface: #1a1a19;
+      --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+      --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+      --s1: #3987e5; --s2: #d95926;
+      --good: #0ca30c; --good-text: #0ca30c; --crit: #d03b3b;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --plane: #0d0d0d; --surface: #1a1a19;
+    --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+    --s1: #3987e5; --s2: #d95926;
+    --good: #0ca30c; --good-text: #0ca30c; --crit: #d03b3b;
+  }
+  * { box-sizing: border-box; }
+  body.viz-root {
+    margin: 0; background: var(--plane); color: var(--ink);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 20px 48px; }
+  header h1 { font-size: 26px; margin: 0 0 4px; }
+  header .sub { color: var(--ink-2); margin: 0 0 2px; }
+  header .byline { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
+  header a { color: var(--s1); text-decoration: none; }
+  header a:hover { text-decoration: underline; }
+
+  .filters { display: flex; flex-wrap: wrap; gap: 18px; margin: 6px 0 18px; }
+  .filter label { display: block; font-size: 11px; letter-spacing: .04em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+  .seg { display: inline-flex; border: 1px solid var(--ring); border-radius: 8px;
+    overflow: hidden; background: var(--surface); }
+  .seg button { border: 0; background: none; color: var(--ink-2); padding: 6px 12px;
+    font: inherit; font-size: 13px; cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--ring); }
+  .seg button.on { background: var(--s1); color: #fff; }
+  .seg button:disabled { opacity: .4; cursor: default; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px; margin-bottom: 18px; }
+  .tile { background: var(--surface); border: 1px solid var(--ring);
+    border-radius: 10px; padding: 12px 14px; }
+  .tile .v { font-size: 26px; font-weight: 700; }
+  .tile .v.ok { color: var(--good-text); }
+  .tile .k { color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+  .card { background: var(--surface); border: 1px solid var(--ring);
+    border-radius: 12px; padding: 16px 18px; margin-bottom: 16px; }
+  .card h2 { font-size: 16px; margin: 0 0 2px; }
+  .card .note { color: var(--muted); font-size: 12.5px; margin: 0 0 12px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
+
+  .legend { display: flex; gap: 16px; font-size: 12.5px; color: var(--ink-2); margin-bottom: 10px; }
+  .legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px;
+    margin-right: 6px; vertical-align: baseline; }
+
+  .gchart .grp { margin-bottom: 12px; }
+  .gchart .gl { font-size: 13px; color: var(--ink-2); margin-bottom: 4px; }
+  .bar-row { display: flex; align-items: center; gap: 8px; height: 22px; margin: 3px 0; }
+  .bar-track { flex: 1; position: relative; height: 14px; }
+  .bar { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 0 4px 4px 0;
+    min-width: 2px; cursor: pointer; }
+  .bar.s1 { background: var(--s1); } .bar.s2 { background: var(--s2); }
+  .bar-val { width: 88px; font-size: 12.5px; color: var(--ink-2);
+    font-variant-numeric: tabular-nums; }
+
+  .words { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 2px 18px; }
+  .wrow { display: grid; grid-template-columns: 86px 1fr 40px; align-items: center;
+    gap: 8px; padding: 2px 4px; border-radius: 6px; cursor: pointer; }
+  .wrow:hover, .wrow.sel { background: color-mix(in srgb, var(--s1) 12%, transparent); }
+  .wrow .wl { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; }
+  .wrow .wt { position: relative; height: 10px; }
+  .wrow .wb { position: absolute; inset: 0 auto 0 0; background: var(--s1);
+    border-radius: 0 4px 4px 0; min-width: 2px; }
+  .wrow .wv { font-size: 11.5px; color: var(--muted); text-align: right;
+    font-variant-numeric: tabular-nums; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th { text-align: left; color: var(--muted); font-weight: 600; font-size: 11.5px;
+    text-transform: uppercase; letter-spacing: .04em; }
+  th, td { padding: 5px 10px 5px 0; border-bottom: 1px solid var(--grid); }
+  td { font-variant-numeric: tabular-nums; }
+  td a { color: var(--s1); text-decoration: none; }
+  td a:hover { text-decoration: underline; }
+  .hit { color: var(--good-text); font-weight: 700; }
+  .miss { color: var(--crit); font-weight: 700; }
+
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .chip { font-size: 12px; padding: 3px 10px; border-radius: 999px;
+    border: 1px solid var(--ring); color: var(--ink-2); }
+  .chip.ok { color: var(--good-text); border-color: color-mix(in srgb, var(--good) 45%, transparent); }
+
+  .tooltip { position: fixed; pointer-events: none; background: var(--ink);
+    color: var(--plane); font-size: 12px; padding: 5px 9px; border-radius: 6px;
+    transform: translate(-50%, -130%); white-space: nowrap; z-index: 10; display: none; }
+
+  details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
+  footer { color: var(--muted); font-size: 12.5px; margin-top: 26px; }
+  footer a { color: var(--s1); text-decoration: none; }
+  .demo { display: inline-block; background: var(--s1); color: #fff; padding: 8px 16px;
+    border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px; }
+</style>
+</head>
+<body class="viz-root">
+<div class="wrap">
+
+<header>
+  <h1>BSL Word Recognition — Results Explorer</h1>
+  <p class="sub">A pose-based transformer against a matched LSTM on a 50-word British Sign Language vocabulary, evaluated one-shot on two independent held-out test sets.</p>
+  <p class="byline">S M Shamrat Tarek Hassan · MSc Data Science ·
+    <a href="https://github.com/froggy238/bsl-word-transformer">code &amp; data</a> ·
+    <a href="https://huggingface.co/spaces/paperfrog/bsl-word-recognition">live demonstrator</a></p>
+</header>
+
+<div class="filters" id="filters">
+  <div class="filter"><label>Test set</label><div class="seg" data-f="test">
+    <button data-v="all" class="on">Both</button>
+    <button data-v="0">Organisation-held-out</button>
+    <button data-v="1">SignBank cross-corpus</button></div></div>
+  <div class="filter"><label>Model</label><div class="seg" data-f="model">
+    <button data-v="all" class="on">All</button>
+    <button data-v="0">Transformer (no aug)</button>
+    <button data-v="1">Transformer (aug)</button>
+    <button data-v="2">LSTM (aug)</button>
+    <button data-v="3">LSTM (no aug)</button></div></div>
+  <div class="filter"><label>SignBank gloss match</label><div class="seg" data-f="conf">
+    <button data-v="all" class="on">All clips</button>
+    <button data-v="1" id="confHigh">Exact-keyword only</button></div></div>
+</div>
+
+<div class="tiles">
+  <div class="tile"><div class="v" id="kTop1">–</div><div class="k">top-1 accuracy (chance 2%)</div></div>
+  <div class="tile"><div class="v" id="kTop5">–</div><div class="k">top-5 accuracy</div></div>
+  <div class="tile"><div class="v" id="kClips">–</div><div class="k" id="kClipsLbl">clips in view</div></div>
+  <div class="tile"><div class="v">p = 0.0215</div><div class="k">McNemar exact, transformer vs LSTM — significant on both test sets</div></div>
+  <div class="tile"><div class="v ok">44.3 fps ✓</div><div class="k">end-to-end throughput (criterion ≥ 15 fps)</div></div>
+  <div class="tile"><div class="v ok">2.08 ms ✓</div><div class="k">median per-window latency (criterion &lt; 100 ms)</div></div>
+</div>
+
+<div class="card">
+  <h2>One-shot test accuracy by model</h2>
+  <p class="note">Top-1 accuracy per finally-selected model on each held-out test. Click a bar to focus the view; the gloss-match filter applies to the SignBank series.</p>
+  <div class="legend">
+    <span><span class="sw" style="background:var(--s1)"></span>Organisation-held-out (69 clips)</span>
+    <span><span class="sw" style="background:var(--s2)"></span>SignBank cross-corpus (100 clips)</span>
+  </div>
+  <div class="gchart" id="modelChart"></div>
+</div>
+
+<div class="card">
+  <h2>Per-word accuracy</h2>
+  <p class="note">Top-1 accuracy per vocabulary word under the current filters, most accurate first. Click a word to open its confusion breakdown.</p>
+  <div class="words" id="wordChart"></div>
+</div>
+
+<div class="card" id="confCard" hidden>
+  <h2 id="confTitle">Confusion</h2>
+  <p class="note" id="confNote"></p>
+  <div class="grid2">
+    <div><h3 style="font-size:13px;margin:0 0 6px;color:var(--ink-2)">Predicted as</h3><div id="confBars"></div></div>
+    <div><h3 style="font-size:13px;margin:0 0 6px;color:var(--ink-2)">Clips</h3>
+      <div style="max-height:260px;overflow:auto"><table id="confTable"></table></div></div>
+  </div>
+</div>
+
+<div class="grid2">
+  <div class="card">
+    <h2>SignBank label quality</h2>
+    <p class="note">The cross-corpus set was curated from a 103-row gloss map; 76 clips match the vocabulary keyword exactly. Four words have no same-gloss SignBank entry (stop→FINISH, today→NOW, need→WANT, goodbye→WAVE-HAND) and mostly fail, as expected.</p>
+    <div id="sbStats"></div>
+  </div>
+  <div class="card">
+    <h2>Where the milliseconds go</h2>
+    <p class="note">Median per-frame cost over 1,000 frames of the full pipeline (video-capture mode; landmark extraction dominates).</p>
+    <div id="latChart"></div>
+    <div class="chips">
+      <span class="chip ok">✓ ≥ 15 fps end-to-end</span>
+      <span class="chip ok">✓ &lt; 100 ms per window</span>
+      <span class="chip">MediaPipe Holistic ≈ 94% of the budget</span>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Validation and rigour</h2>
+  <p class="note">Model selection used a 50-clip validation split only (one clip per word); the selection rule was frozen before any test clip was scored. Values are mean ± population standard deviation over seeds 42–44, with the best run in parentheses.</p>
+  <div id="valTable"></div>
+  <div class="chips">
+    <span class="chip">one-shot: each test set evaluated exactly once</span>
+    <span class="chip">label-shuffle collapses to chance (2.0%)</span>
+    <span class="chip">overfit-one-batch passes ≥ 95%</span>
+    <span class="chip">clean-room notebook reproduces every number</span>
+  </div>
+</div>
+
+<details class="card">
+  <summary>Table view — aggregate results</summary>
+  <div id="aggTable" style="margin-top:10px"></div>
+</details>
+
+<footer>
+  <p><a class="demo" href="https://huggingface.co/spaces/paperfrog/bsl-word-recognition">Try the live demonstrator →</a></p>
+  <p>Research demonstrator for BSL learning and lookup — not an interpreting service.
+  Dictionary clips remain the copyright of their contributing organisations; this page and the
+  public repository carry derived results and landmark data only.
+  Code MIT-licensed at <a href="https://github.com/froggy238/bsl-word-transformer">github.com/froggy238/bsl-word-transformer</a>.</p>
+</footer>
+
+</div>
+<div class="tooltip" id="tip"></div>
+<script>
+const DATA = {"words":["angry","ask","baby","bad","brother","drink","eat","family","father","friend","go","good","goodbye","happy","hello","help","home","how","know","like","look","love","make","money","morning","mother","need","no","please","sad","school","sister","sleep","sorry","stop","thank-you","think","tired","today","toilet","understand","water","week","what","where","who","why","work","yes","yesterday"],"models":["Transformer (no aug)","Transformer (aug)","LSTM (aug)","LSTM (no aug)"],"tests":["Organisation-held-out","SignBank cross-corpus"],"rows":[[0,0,0,11,0,0,0,"angry_signbsl_002"],[0,0,0,34,0,1,0,"angry_signbsl_006"],[0,0,1,30,0,0,0,"ask_signbsl_004"],[0,0,1,41,0,0,0,"ask_signbsl_005"],[0,0,2,2,1,1,0,"baby_signbsl_006"],[0,0,3,47,0,0,0,"bad_signbsl_003"],[0,0,4,9,0,0,0,"brother_signbsl_003"],[0,0,4,4,1,1,0,"brother_signbsl_005"],[0,0,4,42,0,0,0,"brother_signbsl_006"],[0,0,5,47,0,1,0,"drink_signbsl_004"],[0,0,6,28,0,0,0,"eat_signbsl_003"],[0,0,7,9,0,0,0,"family_signbsl_002"],[0,0,7,47,0,0,0,"family_signbsl_005"],[0,0,7,42,0,0,0,"family_signbsl_006"],[0,0,8,9,0,0,0,"father_signbsl_002"],[0,0,8,17,0,0,0,"father_signbsl_004"],[0,0,8,42,0,0,0,"father_signbsl_005"],[0,0,9,47,0,0,0,"friend_signbsl_004"],[0,0,10,32,0,0,0,"go_signbsl_004"],[0,0,11,28,0,0,0,"good_signbsl_005"],[0,0,12,49,0,0,0,"goodbye_signbsl_003"],[0,0,13,17,0,0,0,"happy_signbsl_003"],[0,0,13,42,0,0,0,"happy_signbsl_004"],[0,0,14,49,0,1,0,"hello_signbsl_004"],[0,0,15,9,0,0,0,"help_signbsl_004"],[0,0,16,32,0,0,0,"home_signbsl_006"],[0,0,17,17,1,1,0,"how_signbsl_006"],[0,0,18,5,0,0,0,"know_signbsl_004"],[0,0,18,41,0,0,0,"know_signbsl_005"],[0,0,19,20,0,0,0,"like_signbsl_004"],[0,0,20,47,0,0,0,"look_signbsl_004"],[0,0,21,9,0,0,0,"love_signbsl_002"],[0,0,21,17,0,0,0,"love_signbsl_003"],[0,0,22,28,0,0,0,"make_corpusngt_001"],[0,0,22,41,0,0,0,"make_gpnhs_001"],[0,0,23,42,0,0,0,"money_signbsl_005"],[0,0,24,9,0,0,0,"morning_signbsl_002"],[0,0,25,25,1,1,0,"mother_signbsl_002"],[0,0,25,33,0,0,0,"mother_signbsl_004"],[0,0,25,42,0,1,0,"mother_signbsl_005"],[0,0,26,4,0,0,0,"need_signbsl_005"],[0,0,27,38,0,1,0,"no_signbsl_002"],[0,0,27,41,0,0,0,"no_signbsl_003"],[0,0,28,9,0,0,0,"please_signbsl_003"],[0,0,29,21,0,1,0,"sad_signbsl_002"],[0,0,29,28,0,0,0,"sad_signbsl_004"],[0,0,29,45,0,0,0,"sad_signbsl_005"],[0,0,30,43,0,1,0,"school_signbsl_004"],[0,0,31,9,0,0,0,"sister_signbsl_003"],[0,0,31,28,0,0,0,"sister_signbsl_005"],[0,0,31,49,0,0,0,"sister_signbsl_006"],[0,0,32,32,1,1,0,"sleep_signbsl_003"],[0,0,33,9,0,0,0,"sorry_signbsl_002"],[0,0,34,34,1,1,0,"stop_signbsl_006"],[0,0,35,9,0,0,0,"thank-you_signbsl_003"],[0,0,36,5,0,0,0,"think_signbsl_006"],[0,0,37,37,1,1,0,"tired_signbsl_005"],[0,0,37,48,0,0,0,"tired_signbsl_006"],[0,0,38,49,0,0,0,"today_signbsl_004"],[0,0,39,32,0,0,0,"toilet_signbsl_006"],[0,0,40,49,0,0,0,"understand_signbsl_004"],[0,0,42,42,1,1,0,"week_signbsl_005"],[0,0,43,14,0,0,0,"what_signbsl_005"],[0,0,44,11,0,0,0,"where_signbsl_005"],[0,0,45,28,0,0,0,"who_signbsl_006"],[0,0,46,45,0,1,0,"why_signbsl_003"],[0,0,47,43,0,1,0,"work_signbsl_006"],[0,0,48,41,0,0,0,"yes_signbsl_002"],[0,0,49,49,1,1,0,"yesterday_signbsl_005"],[0,1,0,24,0,0,1,"angry_signbank_001"],[0,1,0,32,0,1,0,"angry_signbank_002"],[0,1,1,5,0,1,1,"ask_signbank_001"],[0,1,2,2,1,1,1,"baby_signbank_001"],[0,1,3,24,0,0,1,"bad_signbank_001"],[0,1,3,34,0,0,0,"bad_signbank_002"],[0,1,4,9,0,0,1,"brother_signbank_001"],[0,1,5,5,1,1,1,"drink_signbank_001"],[0,1,6,47,0,0,0,"eat_signbank_001"],[0,1,6,24,0,0,1,"eat_signbank_002"],[0,1,7,24,0,0,1,"family_signbank_001"],[0,1,7,9,0,0,1,"family_signbank_002"],[0,1,8,34,0,0,1,"father_signbank_001"],[0,1,8,8,1,1,1,"father_signbank_002"],[0,1,9,9,1,1,1,"friend_signbank_001"],[0,1,9,4,0,0,0,"friend_signbank_002"],[0,1,10,38,0,1,0,"go_signbank_001"],[0,1,10,47,0,1,1,"go_signbank_002"],[0,1,10,47,0,1,1,"go_signbank_003"],[0,1,11,43,0,0,0,"good_signbank_001"],[0,1,11,24,0,0,1,"good_signbank_002"],[0,1,11,41,0,0,1,"good_signbank_003"],[0,1,12,43,0,0,0,"goodbye_signbank_001"],[0,1,13,23,0,0,1,"happy_signbank_001"],[0,1,13,47,0,0,0,"happy_signbank_002"],[0,1,14,5,0,0,1,"hello_signbank_001"],[0,1,15,47,0,0,1,"help_signbank_001"],[0,1,15,21,0,0,1,"help_signbank_002"],[0,1,16,43,0,0,1,"home_signbank_001"],[0,1,16,24,0,0,1,"home_signbank_002"],[0,1,16,32,0,0,0,"home_signbank_003"],[0,1,17,17,1,1,1,"how_signbank_001"],[0,1,17,34,0,0,1,"how_signbank_002"],[0,1,18,5,0,0,1,"know_signbank_001"],[0,1,19,28,0,0,0,"like_signbank_001"],[0,1,19,41,0,0,0,"like_signbank_002"],[0,1,19,24,0,0,1,"like_signbank_003"],[0,1,20,5,0,0,1,"look_signbank_001"],[0,1,20,5,0,0,1,"look_signbank_002"],[0,1,20,32,0,0,0,"look_signbank_003"],[0,1,21,34,0,0,0,"love_signbank_001"],[0,1,21,34,0,0,0,"love_signbank_002"],[0,1,21,21,1,1,1,"love_signbank_003"],[0,1,22,32,0,0,0,"make_signbank_001"],[0,1,22,34,0,0,1,"make_signbank_002"],[0,1,23,23,1,1,1,"money_signbank_001"],[0,1,23,24,0,0,1,"money_signbank_002"],[0,1,23,23,1,1,1,"money_signbank_003"],[0,1,24,24,1,1,1,"morning_signbank_001"],[0,1,24,34,0,0,1,"morning_signbank_002"],[0,1,24,34,0,0,1,"morning_signbank_003"],[0,1,25,25,1,1,1,"mother_signbank_001"],[0,1,25,5,0,0,1,"mother_signbank_002"],[0,1,26,27,0,0,0,"need_signbank_001"],[0,1,27,24,0,0,1,"no_signbank_001"],[0,1,27,24,0,0,1,"no_signbank_002"],[0,1,27,34,0,0,0,"no_signbank_003"],[0,1,28,24,0,0,1,"please_signbank_001"],[0,1,29,26,0,0,0,"sad_signbank_001"],[0,1,29,5,0,0,1,"sad_signbank_002"],[0,1,30,5,0,1,1,"school_signbank_001"],[0,1,30,43,0,1,1,"school_signbank_002"],[0,1,30,35,0,0,1,"school_signbank_003"],[0,1,31,5,0,0,1,"sister_signbank_001"],[0,1,32,32,1,1,1,"sleep_signbank_001"],[0,1,32,32,1,1,1,"sleep_signbank_002"],[0,1,32,5,0,0,1,"sleep_signbank_003"],[0,1,33,24,0,1,1,"sorry_signbank_001"],[0,1,33,30,0,0,1,"sorry_signbank_002"],[0,1,33,16,0,0,1,"sorry_signbank_003"],[0,1,34,9,0,0,0,"stop_signbank_001"],[0,1,34,32,0,1,0,"stop_signbank_002"],[0,1,34,34,1,1,0,"stop_signbank_003"],[0,1,35,24,0,1,1,"thank-you_signbank_001"],[0,1,36,5,0,0,0,"think_signbank_001"],[0,1,36,5,0,0,0,"think_signbank_002"],[0,1,36,5,0,0,1,"think_signbank_003"],[0,1,37,34,0,0,1,"tired_signbank_001"],[0,1,38,44,0,1,0,"today_signbank_001"],[0,1,39,24,0,0,1,"toilet_signbank_001"],[0,1,39,27,0,0,1,"toilet_signbank_002"],[0,1,39,5,0,0,1,"toilet_signbank_003"],[0,1,40,5,0,0,1,"understand_signbank_001"],[0,1,40,30,0,0,1,"understand_signbank_002"],[0,1,41,5,0,1,1,"water_signbank_001"],[0,1,41,5,0,1,1,"water_signbank_002"],[0,1,41,5,0,0,1,"water_signbank_003"],[0,1,42,34,0,0,1,"week_signbank_001"],[0,1,42,21,0,0,1,"week_signbank_002"],[0,1,43,24,0,1,1,"what_signbank_001"],[0,1,44,34,0,1,1,"where_signbank_001"],[0,1,45,24,0,0,1,"who_signbank_001"],[0,1,45,24,0,0,1,"who_signbank_002"],[0,1,45,24,0,0,1,"who_signbank_003"],[0,1,46,33,0,1,1,"why_signbank_001"],[0,1,47,47,1,1,1,"work_signbank_001"],[0,1,48,43,0,0,1,"yes_signbank_001"],[0,1,48,16,0,0,1,"yes_signbank_002"],[0,1,49,24,0,0,1,"yesterday_signbank_001"],[0,1,49,43,0,1,1,"yesterday_signbank_002"],[1,0,0,11,0,0,0,"angry_signbsl_002"],[1,0,0,44,0,1,0,"angry_signbsl_006"],[1,0,1,30,0,0,0,"ask_signbsl_004"],[1,0,1,41,0,0,0,"ask_signbsl_005"],[1,0,2,46,0,1,0,"baby_signbsl_006"],[1,0,3,28,0,0,0,"bad_signbsl_003"],[1,0,4,9,0,0,0,"brother_signbsl_003"],[1,0,4,17,0,1,0,"brother_signbsl_005"],[1,0,4,42,0,0,0,"brother_signbsl_006"],[1,0,5,28,0,1,0,"drink_signbsl_004"],[1,0,6,28,0,0,0,"eat_signbsl_003"],[1,0,7,9,0,1,0,"family_signbsl_002"],[1,0,7,28,0,0,0,"family_signbsl_005"],[1,0,7,42,0,0,0,"family_signbsl_006"],[1,0,8,9,0,0,0,"father_signbsl_002"],[1,0,8,17,0,0,0,"father_signbsl_004"],[1,0,8,42,0,0,0,"father_signbsl_005"],[1,0,9,47,0,0,0,"friend_signbsl_004"],[1,0,10,32,0,0,0,"go_signbsl_004"],[1,0,11,28,0,0,0,"good_signbsl_005"],[1,0,12,49,0,0,0,"goodbye_signbsl_003"],[1,0,13,17,0,0,0,"happy_signbsl_003"],[1,0,13,42,0,0,0,"happy_signbsl_004"],[1,0,14,49,0,1,0,"hello_signbsl_004"],[1,0,15,9,0,0,0,"help_signbsl_004"],[1,0,16,32,0,0,0,"home_signbsl_006"],[1,0,17,17,1,1,0,"how_signbsl_006"],[1,0,18,30,0,0,0,"know_signbsl_004"],[1,0,18,41,0,1,0,"know_signbsl_005"],[1,0,19,15,0,0,0,"like_signbsl_004"],[1,0,20,28,0,0,0,"look_signbsl_004"],[1,0,21,9,0,0,0,"love_signbsl_002"],[1,0,21,17,0,0,0,"love_signbsl_003"],[1,0,22,28,0,0,0,"make_corpusngt_001"],[1,0,22,41,0,0,0,"make_gpnhs_001"],[1,0,23,42,0,0,0,"money_signbsl_005"],[1,0,24,13,0,0,0,"morning_signbsl_002"],[1,0,25,25,1,1,0,"mother_signbsl_002"],[1,0,25,28,0,0,0,"mother_signbsl_004"],[1,0,25,42,0,0,0,"mother_signbsl_005"],[1,0,26,4,0,0,0,"need_signbsl_005"],[1,0,27,38,0,1,0,"no_signbsl_002"],[1,0,27,41,0,0,0,"no_signbsl_003"],[1,0,28,9,0,0,0,"please_signbsl_003"],[1,0,29,6,0,1,0,"sad_signbsl_002"],[1,0,29,28,0,0,0,"sad_signbsl_004"],[1,0,29,45,0,0,0,"sad_signbsl_005"],[1,0,30,28,0,1,0,"school_signbsl_004"],[1,0,31,6,0,0,0,"sister_signbsl_003"],[1,0,31,28,0,0,0,"sister_signbsl_005"],[1,0,31,41,0,0,0,"sister_signbsl_006"],[1,0,32,32,1,1,0,"sleep_signbsl_003"],[1,0,33,13,0,0,0,"sorry_signbsl_002"],[1,0,34,34,1,1,0,"stop_signbsl_006"],[1,0,35,9,0,0,0,"thank-you_signbsl_003"],[1,0,36,30,0,0,0,"think_signbsl_006"],[1,0,37,11,0,1,0,"tired_signbsl_005"],[1,0,37,19,0,0,0,"tired_signbsl_006"],[1,0,38,49,0,0,0,"today_signbsl_004"],[1,0,39,32,0,0,0,"toilet_signbsl_006"],[1,0,40,41,0,0,0,"understand_signbsl_004"],[1,0,42,42,1,1,0,"week_signbsl_005"],[1,0,43,41,0,0,0,"what_signbsl_005"],[1,0,44,11,0,0,0,"where_signbsl_005"],[1,0,45,28,0,0,0,"who_signbsl_006"],[1,0,46,45,0,1,0,"why_signbsl_003"],[1,0,47,43,0,0,0,"work_signbsl_006"],[1,0,48,41,0,0,0,"yes_signbsl_002"],[1,0,49,49,1,1,0,"yesterday_signbsl_005"],[1,1,0,24,0,0,1,"angry_signbank_001"],[1,1,0,32,0,1,0,"angry_signbank_002"],[1,1,1,5,0,0,1,"ask_signbank_001"],[1,1,2,8,0,1,1,"baby_signbank_001"],[1,1,3,24,0,0,1,"bad_signbank_001"],[1,1,3,34,0,0,0,"bad_signbank_002"],[1,1,4,9,0,0,1,"brother_signbank_001"],[1,1,5,30,0,1,1,"drink_signbank_001"],[1,1,6,33,0,0,0,"eat_signbank_001"],[1,1,6,24,0,0,1,"eat_signbank_002"],[1,1,7,24,0,0,1,"family_signbank_001"],[1,1,7,9,0,0,1,"family_signbank_002"],[1,1,8,32,0,0,1,"father_signbank_001"],[1,1,8,8,1,1,1,"father_signbank_002"],[1,1,9,9,1,1,1,"friend_signbank_001"],[1,1,9,4,0,0,0,"friend_signbank_002"],[1,1,10,10,1,1,0,"go_signbank_001"],[1,1,10,10,1,1,1,"go_signbank_002"],[1,1,10,43,0,1,1,"go_signbank_003"],[1,1,11,43,0,0,0,"good_signbank_001"],[1,1,11,24,0,0,1,"good_signbank_002"],[1,1,11,41,0,0,1,"good_signbank_003"],[1,1,12,43,0,0,0,"goodbye_signbank_001"],[1,1,13,23,0,0,1,"happy_signbank_001"],[1,1,13,43,0,0,0,"happy_signbank_002"],[1,1,14,30,0,0,1,"hello_signbank_001"],[1,1,15,17,0,1,1,"help_signbank_001"],[1,1,15,21,0,1,1,"help_signbank_002"],[1,1,16,43,0,0,1,"home_signbank_001"],[1,1,16,43,0,0,1,"home_signbank_002"],[1,1,16,32,0,0,0,"home_signbank_003"],[1,1,17,17,1,1,1,"how_signbank_001"],[1,1,17,4,0,0,1,"how_signbank_002"],[1,1,18,30,0,0,1,"know_signbank_001"],[1,1,19,33,0,0,0,"like_signbank_001"],[1,1,19,41,0,0,0,"like_signbank_002"],[1,1,19,24,0,0,1,"like_signbank_003"],[1,1,20,5,0,0,1,"look_signbank_001"],[1,1,20,5,0,0,1,"look_signbank_002"],[1,1,20,32,0,0,0,"look_signbank_003"],[1,1,21,15,0,0,0,"love_signbank_001"],[1,1,21,34,0,0,0,"love_signbank_002"],[1,1,21,21,1,1,1,"love_signbank_003"],[1,1,22,32,0,0,0,"make_signbank_001"],[1,1,22,43,0,0,1,"make_signbank_002"],[1,1,23,23,1,1,1,"money_signbank_001"],[1,1,23,43,0,0,1,"money_signbank_002"],[1,1,23,15,0,1,1,"money_signbank_003"],[1,1,24,24,1,1,1,"morning_signbank_001"],[1,1,24,34,0,0,1,"morning_signbank_002"],[1,1,24,34,0,0,1,"morning_signbank_003"],[1,1,25,25,1,1,1,"mother_signbank_001"],[1,1,25,5,0,0,1,"mother_signbank_002"],[1,1,26,27,0,0,0,"need_signbank_001"],[1,1,27,24,0,0,1,"no_signbank_001"],[1,1,27,24,0,0,1,"no_signbank_002"],[1,1,27,34,0,0,0,"no_signbank_003"],[1,1,28,24,0,1,1,"please_signbank_001"],[1,1,29,33,0,0,0,"sad_signbank_001"],[1,1,29,5,0,0,1,"sad_signbank_002"],[1,1,30,5,0,1,1,"school_signbank_001"],[1,1,30,43,0,1,1,"school_signbank_002"],[1,1,30,24,0,0,1,"school_signbank_003"],[1,1,31,10,0,0,1,"sister_signbank_001"],[1,1,32,32,1,1,1,"sleep_signbank_001"],[1,1,32,32,1,1,1,"sleep_signbank_002"],[1,1,32,5,0,0,1,"sleep_signbank_003"],[1,1,33,33,1,1,1,"sorry_signbank_001"],[1,1,33,30,0,0,1,"sorry_signbank_002"],[1,1,33,16,0,0,1,"sorry_signbank_003"],[1,1,34,7,0,0,0,"stop_signbank_001"],[1,1,34,32,0,1,0,"stop_signbank_002"],[1,1,34,34,1,1,0,"stop_signbank_003"],[1,1,35,24,0,0,1,"thank-you_signbank_001"],[1,1,36,5,0,0,0,"think_signbank_001"],[1,1,36,5,0,0,0,"think_signbank_002"],[1,1,36,30,0,0,1,"think_signbank_003"],[1,1,37,34,0,0,1,"tired_signbank_001"],[1,1,38,44,0,1,0,"today_signbank_001"],[1,1,39,28,0,0,1,"toilet_signbank_001"],[1,1,39,27,0,0,1,"toilet_signbank_002"],[1,1,39,5,0,0,1,"toilet_signbank_003"],[1,1,40,30,0,0,1,"understand_signbank_001"],[1,1,40,30,0,0,1,"understand_signbank_002"],[1,1,41,5,0,0,1,"water_signbank_001"],[1,1,41,30,0,0,1,"water_signbank_002"],[1,1,41,28,0,0,1,"water_signbank_003"],[1,1,42,34,0,0,1,"week_signbank_001"],[1,1,42,17,0,0,1,"week_signbank_002"],[1,1,43,24,0,1,1,"what_signbank_001"],[1,1,44,44,1,1,1,"where_signbank_001"],[1,1,45,24,0,0,1,"who_signbank_001"],[1,1,45,33,0,0,1,"who_signbank_002"],[1,1,45,24,0,0,1,"who_signbank_003"],[1,1,46,33,0,1,1,"why_signbank_001"],[1,1,47,28,0,1,1,"work_signbank_001"],[1,1,48,43,0,0,1,"yes_signbank_001"],[1,1,48,16,0,0,1,"yes_signbank_002"],[1,1,49,28,0,0,1,"yesterday_signbank_001"],[1,1,49,43,0,0,1,"yesterday_signbank_002"],[2,0,0,48,0,0,0,"angry_signbsl_002"],[2,0,0,23,0,0,0,"angry_signbsl_006"],[2,0,1,36,0,0,0,"ask_signbsl_004"],[2,0,1,1,1,1,0,"ask_signbsl_005"],[2,0,2,46,0,1,0,"baby_signbsl_006"],[2,0,3,24,0,0,0,"bad_signbsl_003"],[2,0,4,9,0,0,0,"brother_signbsl_003"],[2,0,4,23,0,0,0,"brother_signbsl_005"],[2,0,4,1,0,0,0,"brother_signbsl_006"],[2,0,5,24,0,0,0,"drink_signbsl_004"],[2,0,6,33,0,0,0,"eat_signbsl_003"],[2,0,7,9,0,0,0,"family_signbsl_002"],[2,0,7,24,0,0,0,"family_signbsl_005"],[2,0,7,15,0,0,0,"family_signbsl_006"],[2,0,8,9,0,0,0,"father_signbsl_002"],[2,0,8,23,0,1,0,"father_signbsl_004"],[2,0,8,14,0,0,0,"father_signbsl_005"],[2,0,9,47,0,0,0,"friend_signbsl_004"],[2,0,10,49,0,0,0,"go_signbsl_004"],[2,0,11,24,0,0,0,"good_signbsl_005"],[2,0,12,9,0,0,0,"goodbye_signbsl_003"],[2,0,13,24,0,0,0,"happy_signbsl_003"],[2,0,13,49,0,0,0,"happy_signbsl_004"],[2,0,14,9,0,0,0,"hello_signbsl_004"],[2,0,15,9,0,0,0,"help_signbsl_004"],[2,0,16,5,0,0,0,"home_signbsl_006"],[2,0,17,24,0,0,0,"how_signbsl_006"],[2,0,18,33,0,0,0,"know_signbsl_004"],[2,0,18,41,0,0,0,"know_signbsl_005"],[2,0,19,20,0,1,0,"like_signbsl_004"],[2,0,20,33,0,0,0,"look_signbsl_004"],[2,0,21,48,0,0,0,"love_signbsl_002"],[2,0,21,24,0,0,0,"love_signbsl_003"],[2,0,22,24,0,0,0,"make_corpusngt_001"],[2,0,22,1,0,0,0,"make_gpnhs_001"],[2,0,23,1,0,0,0,"money_signbsl_005"],[2,0,24,9,0,0,0,"morning_signbsl_002"],[2,0,25,9,0,0,0,"mother_signbsl_002"],[2,0,25,33,0,0,0,"mother_signbsl_004"],[2,0,25,1,0,0,0,"mother_signbsl_005"],[2,0,26,20,0,0,0,"need_signbsl_005"],[2,0,27,8,0,0,0,"no_signbsl_002"],[2,0,27,1,0,0,0,"no_signbsl_003"],[2,0,28,9,0,0,0,"please_signbsl_003"],[2,0,29,41,0,0,0,"sad_signbsl_002"],[2,0,29,24,0,0,0,"sad_signbsl_004"],[2,0,29,41,0,0,0,"sad_signbsl_005"],[2,0,30,24,0,0,0,"school_signbsl_004"],[2,0,31,41,0,0,0,"sister_signbsl_003"],[2,0,31,33,0,0,0,"sister_signbsl_005"],[2,0,31,41,0,1,0,"sister_signbsl_006"],[2,0,32,24,0,0,0,"sleep_signbsl_003"],[2,0,33,49,0,1,0,"sorry_signbsl_002"],[2,0,34,23,0,0,0,"stop_signbsl_006"],[2,0,35,48,0,0,0,"thank-you_signbsl_003"],[2,0,36,24,0,0,0,"think_signbsl_006"],[2,0,37,24,0,0,0,"tired_signbsl_005"],[2,0,37,41,0,0,0,"tired_signbsl_006"],[2,0,38,1,0,0,0,"today_signbsl_004"],[2,0,39,36,0,0,0,"toilet_signbsl_006"],[2,0,40,41,0,0,0,"understand_signbsl_004"],[2,0,42,1,0,0,0,"week_signbsl_005"],[2,0,43,1,0,0,0,"what_signbsl_005"],[2,0,44,1,0,0,0,"where_signbsl_005"],[2,0,45,2,0,0,0,"who_signbsl_006"],[2,0,46,41,0,1,0,"why_signbsl_003"],[2,0,47,33,0,0,0,"work_signbsl_006"],[2,0,48,1,0,0,0,"yes_signbsl_002"],[2,0,49,41,0,1,0,"yesterday_signbsl_005"],[2,1,0,24,0,0,1,"angry_signbank_001"],[2,1,0,15,0,1,0,"angry_signbank_002"],[2,1,1,33,0,0,1,"ask_signbank_001"],[2,1,2,9,0,1,1,"baby_signbank_001"],[2,1,3,33,0,0,1,"bad_signbank_001"],[2,1,3,17,0,0,0,"bad_signbank_002"],[2,1,4,33,0,0,1,"brother_signbank_001"],[2,1,5,33,0,1,1,"drink_signbank_001"],[2,1,6,33,0,0,0,"eat_signbank_001"],[2,1,6,33,0,0,1,"eat_signbank_002"],[2,1,7,33,0,0,1,"family_signbank_001"],[2,1,7,33,0,0,1,"family_signbank_002"],[2,1,8,33,0,0,1,"father_signbank_001"],[2,1,8,8,1,1,1,"father_signbank_002"],[2,1,9,9,1,1,1,"friend_signbank_001"],[2,1,9,23,0,0,0,"friend_signbank_002"],[2,1,10,8,0,0,0,"go_signbank_001"],[2,1,10,24,0,1,1,"go_signbank_002"],[2,1,10,24,0,0,1,"go_signbank_003"],[2,1,11,33,0,0,0,"good_signbank_001"],[2,1,11,24,0,0,1,"good_signbank_002"],[2,1,11,24,0,0,1,"good_signbank_003"],[2,1,12,24,0,0,0,"goodbye_signbank_001"],[2,1,13,33,0,0,1,"happy_signbank_001"],[2,1,13,24,0,0,0,"happy_signbank_002"],[2,1,14,33,0,0,1,"hello_signbank_001"],[2,1,15,33,0,0,1,"help_signbank_001"],[2,1,15,33,0,0,1,"help_signbank_002"],[2,1,16,24,0,0,1,"home_signbank_001"],[2,1,16,24,0,0,1,"home_signbank_002"],[2,1,16,23,0,0,0,"home_signbank_003"],[2,1,17,17,1,1,1,"how_signbank_001"],[2,1,17,33,0,1,1,"how_signbank_002"],[2,1,18,33,0,0,1,"know_signbank_001"],[2,1,19,33,0,0,0,"like_signbank_001"],[2,1,19,24,0,0,0,"like_signbank_002"],[2,1,19,24,0,0,1,"like_signbank_003"],[2,1,20,33,0,0,1,"look_signbank_001"],[2,1,20,33,0,0,1,"look_signbank_002"],[2,1,20,33,0,0,0,"look_signbank_003"],[2,1,21,23,0,0,0,"love_signbank_001"],[2,1,21,23,0,0,0,"love_signbank_002"],[2,1,21,24,0,0,1,"love_signbank_003"],[2,1,22,33,0,0,0,"make_signbank_001"],[2,1,22,24,0,0,1,"make_signbank_002"],[2,1,23,23,1,1,1,"money_signbank_001"],[2,1,23,24,0,1,1,"money_signbank_002"],[2,1,23,33,0,1,1,"money_signbank_003"],[2,1,24,24,1,1,1,"morning_signbank_001"],[2,1,24,23,0,1,1,"morning_signbank_002"],[2,1,24,24,1,1,1,"morning_signbank_003"],[2,1,25,24,0,0,1,"mother_signbank_001"],[2,1,25,33,0,0,1,"mother_signbank_002"],[2,1,26,24,0,0,0,"need_signbank_001"],[2,1,27,24,0,0,1,"no_signbank_001"],[2,1,27,24,0,0,1,"no_signbank_002"],[2,1,27,25,0,0,0,"no_signbank_003"],[2,1,28,24,0,1,1,"please_signbank_001"],[2,1,29,24,0,1,0,"sad_signbank_001"],[2,1,29,33,0,0,1,"sad_signbank_002"],[2,1,30,33,0,0,1,"school_signbank_001"],[2,1,30,24,0,0,1,"school_signbank_002"],[2,1,30,24,0,0,1,"school_signbank_003"],[2,1,31,24,0,0,1,"sister_signbank_001"],[2,1,32,24,0,0,1,"sleep_signbank_001"],[2,1,32,24,0,0,1,"sleep_signbank_002"],[2,1,32,33,0,0,1,"sleep_signbank_003"],[2,1,33,24,0,1,1,"sorry_signbank_001"],[2,1,33,24,0,1,1,"sorry_signbank_002"],[2,1,33,24,0,0,1,"sorry_signbank_003"],[2,1,34,33,0,0,0,"stop_signbank_001"],[2,1,34,23,0,0,0,"stop_signbank_002"],[2,1,34,23,0,1,0,"stop_signbank_003"],[2,1,35,24,0,1,1,"thank-you_signbank_001"],[2,1,36,33,0,0,0,"think_signbank_001"],[2,1,36,33,0,0,0,"think_signbank_002"],[2,1,36,24,0,0,1,"think_signbank_003"],[2,1,37,24,0,0,1,"tired_signbank_001"],[2,1,38,8,0,0,0,"today_signbank_001"],[2,1,39,24,0,0,1,"toilet_signbank_001"],[2,1,39,24,0,0,1,"toilet_signbank_002"],[2,1,39,24,0,0,1,"toilet_signbank_003"],[2,1,40,33,0,0,1,"understand_signbank_001"],[2,1,40,24,0,0,1,"understand_signbank_002"],[2,1,41,33,0,0,1,"water_signbank_001"],[2,1,41,33,0,0,1,"water_signbank_002"],[2,1,41,24,0,1,1,"water_signbank_003"],[2,1,42,24,0,0,1,"week_signbank_001"],[2,1,42,24,0,0,1,"week_signbank_002"],[2,1,43,24,0,0,1,"what_signbank_001"],[2,1,44,23,0,0,1,"where_signbank_001"],[2,1,45,24,0,0,1,"who_signbank_001"],[2,1,45,24,0,0,1,"who_signbank_002"],[2,1,45,24,0,0,1,"who_signbank_003"],[2,1,46,24,0,0,1,"why_signbank_001"],[2,1,47,24,0,1,1,"work_signbank_001"],[2,1,48,24,0,0,1,"yes_signbank_001"],[2,1,48,24,0,0,1,"yes_signbank_002"],[2,1,49,24,0,0,1,"yesterday_signbank_001"],[2,1,49,33,0,0,1,"yesterday_signbank_002"],[3,0,0,17,0,0,0,"angry_signbsl_002"],[3,0,0,23,0,0,0,"angry_signbsl_006"],[3,0,1,17,0,0,0,"ask_signbsl_004"],[3,0,1,1,1,1,0,"ask_signbsl_005"],[3,0,2,21,0,1,0,"baby_signbsl_006"],[3,0,3,24,0,0,0,"bad_signbsl_003"],[3,0,4,9,0,0,0,"brother_signbsl_003"],[3,0,4,17,0,0,0,"brother_signbsl_005"],[3,0,4,15,0,0,0,"brother_signbsl_006"],[3,0,5,33,0,0,0,"drink_signbsl_004"],[3,0,6,33,0,0,0,"eat_signbsl_003"],[3,0,7,9,0,0,0,"family_signbsl_002"],[3,0,7,33,0,0,0,"family_signbsl_005"],[3,0,7,22,0,0,0,"family_signbsl_006"],[3,0,8,9,0,1,0,"father_signbsl_002"],[3,0,8,23,0,0,0,"father_signbsl_004"],[3,0,8,14,0,0,0,"father_signbsl_005"],[3,0,9,17,0,0,0,"friend_signbsl_004"],[3,0,10,1,0,0,0,"go_signbsl_004"],[3,0,11,23,0,0,0,"good_signbsl_005"],[3,0,12,9,0,0,0,"goodbye_signbsl_003"],[3,0,13,33,0,0,0,"happy_signbsl_003"],[3,0,13,49,0,0,0,"happy_signbsl_004"],[3,0,14,9,0,0,0,"hello_signbsl_004"],[3,0,15,9,0,0,0,"help_signbsl_004"],[3,0,16,24,0,0,0,"home_signbsl_006"],[3,0,17,23,0,1,0,"how_signbsl_006"],[3,0,18,29,0,0,0,"know_signbsl_004"],[3,0,18,41,0,1,0,"know_signbsl_005"],[3,0,19,20,0,0,0,"like_signbsl_004"],[3,0,20,33,0,0,0,"look_signbsl_004"],[3,0,21,9,0,1,0,"love_signbsl_002"],[3,0,21,23,0,0,0,"love_signbsl_003"],[3,0,22,23,0,0,0,"make_corpusngt_001"],[3,0,22,1,0,0,0,"make_gpnhs_001"],[3,0,23,14,0,0,0,"money_signbsl_005"],[3,0,24,9,0,0,0,"morning_signbsl_002"],[3,0,25,9,0,0,0,"mother_signbsl_002"],[3,0,25,33,0,0,0,"mother_signbsl_004"],[3,0,25,12,0,0,0,"mother_signbsl_005"],[3,0,26,47,0,0,0,"need_signbsl_005"],[3,0,27,2,0,0,0,"no_signbsl_002"],[3,0,27,1,0,0,0,"no_signbsl_003"],[3,0,28,9,0,0,0,"please_signbsl_003"],[3,0,29,48,0,0,0,"sad_signbsl_002"],[3,0,29,33,0,1,0,"sad_signbsl_004"],[3,0,29,41,0,0,0,"sad_signbsl_005"],[3,0,30,17,0,0,0,"school_signbsl_004"],[3,0,31,48,0,0,0,"sister_signbsl_003"],[3,0,31,33,0,0,0,"sister_signbsl_005"],[3,0,31,41,0,1,0,"sister_signbsl_006"],[3,0,32,24,0,0,0,"sleep_signbsl_003"],[3,0,33,21,0,1,0,"sorry_signbsl_002"],[3,0,34,17,0,0,0,"stop_signbsl_006"],[3,0,35,9,0,0,0,"thank-you_signbsl_003"],[3,0,36,24,0,0,0,"think_signbsl_006"],[3,0,37,23,0,0,0,"tired_signbsl_005"],[3,0,37,41,0,0,0,"tired_signbsl_006"],[3,0,38,36,0,0,0,"today_signbsl_004"],[3,0,39,36,0,0,0,"toilet_signbsl_006"],[3,0,40,41,0,0,0,"understand_signbsl_004"],[3,0,42,12,0,0,0,"week_signbsl_005"],[3,0,43,1,0,0,0,"what_signbsl_005"],[3,0,44,12,0,0,0,"where_signbsl_005"],[3,0,45,2,0,0,0,"who_signbsl_006"],[3,0,46,41,0,1,0,"why_signbsl_003"],[3,0,47,33,0,0,0,"work_signbsl_006"],[3,0,48,1,0,0,0,"yes_signbsl_002"],[3,0,49,41,0,1,0,"yesterday_signbsl_005"],[3,1,0,24,0,0,1,"angry_signbank_001"],[3,1,0,17,0,0,0,"angry_signbank_002"],[3,1,1,24,0,0,1,"ask_signbank_001"],[3,1,2,10,0,0,1,"baby_signbank_001"],[3,1,3,33,0,0,1,"bad_signbank_001"],[3,1,3,17,0,0,0,"bad_signbank_002"],[3,1,4,24,0,0,1,"brother_signbank_001"],[3,1,5,33,0,1,1,"drink_signbank_001"],[3,1,6,33,0,0,0,"eat_signbank_001"],[3,1,6,33,0,0,1,"eat_signbank_002"],[3,1,7,33,0,0,1,"family_signbank_001"],[3,1,7,17,0,0,1,"family_signbank_002"],[3,1,8,33,0,0,1,"father_signbank_001"],[3,1,8,8,1,1,1,"father_signbank_002"],[3,1,9,17,0,1,1,"friend_signbank_001"],[3,1,9,23,0,0,0,"friend_signbank_002"],[3,1,10,2,0,0,0,"go_signbank_001"],[3,1,10,24,0,1,1,"go_signbank_002"],[3,1,10,23,0,0,1,"go_signbank_003"],[3,1,11,17,0,0,0,"good_signbank_001"],[3,1,11,23,0,0,1,"good_signbank_002"],[3,1,11,24,0,0,1,"good_signbank_003"],[3,1,12,23,0,0,0,"goodbye_signbank_001"],[3,1,13,33,0,0,1,"happy_signbank_001"],[3,1,13,23,0,0,0,"happy_signbank_002"],[3,1,14,33,0,0,1,"hello_signbank_001"],[3,1,15,17,0,0,1,"help_signbank_001"],[3,1,15,17,0,0,1,"help_signbank_002"],[3,1,16,23,0,0,1,"home_signbank_001"],[3,1,16,33,0,0,1,"home_signbank_002"],[3,1,16,17,0,0,0,"home_signbank_003"],[3,1,17,17,1,1,1,"how_signbank_001"],[3,1,17,17,1,1,1,"how_signbank_002"],[3,1,18,33,0,0,1,"know_signbank_001"],[3,1,19,33,0,0,0,"like_signbank_001"],[3,1,19,24,0,0,0,"like_signbank_002"],[3,1,19,23,0,0,1,"like_signbank_003"],[3,1,20,33,0,0,1,"look_signbank_001"],[3,1,20,33,0,0,1,"look_signbank_002"],[3,1,20,33,0,0,0,"look_signbank_003"],[3,1,21,44,0,0,0,"love_signbank_001"],[3,1,21,23,0,0,0,"love_signbank_002"],[3,1,21,24,0,0,1,"love_signbank_003"],[3,1,22,33,0,0,0,"make_signbank_001"],[3,1,22,17,0,0,1,"make_signbank_002"],[3,1,23,23,1,1,1,"money_signbank_001"],[3,1,23,23,1,1,1,"money_signbank_002"],[3,1,23,17,0,1,1,"money_signbank_003"],[3,1,24,23,0,1,1,"morning_signbank_001"],[3,1,24,17,0,0,1,"morning_signbank_002"],[3,1,24,23,0,1,1,"morning_signbank_003"],[3,1,25,23,0,1,1,"mother_signbank_001"],[3,1,25,33,0,0,1,"mother_signbank_002"],[3,1,26,24,0,0,0,"need_signbank_001"],[3,1,27,23,0,0,1,"no_signbank_001"],[3,1,27,33,0,0,1,"no_signbank_002"],[3,1,27,17,0,0,0,"no_signbank_003"],[3,1,28,17,0,0,1,"please_signbank_001"],[3,1,29,24,0,0,0,"sad_signbank_001"],[3,1,29,33,0,0,1,"sad_signbank_002"],[3,1,30,5,0,0,1,"school_signbank_001"],[3,1,30,33,0,0,1,"school_signbank_002"],[3,1,30,24,0,0,1,"school_signbank_003"],[3,1,31,24,0,0,1,"sister_signbank_001"],[3,1,32,24,0,0,1,"sleep_signbank_001"],[3,1,32,24,0,0,1,"sleep_signbank_002"],[3,1,32,24,0,0,1,"sleep_signbank_003"],[3,1,33,24,0,1,1,"sorry_signbank_001"],[3,1,33,24,0,1,1,"sorry_signbank_002"],[3,1,33,23,0,0,1,"sorry_signbank_003"],[3,1,34,2,0,0,0,"stop_signbank_001"],[3,1,34,44,0,0,0,"stop_signbank_002"],[3,1,34,23,0,0,0,"stop_signbank_003"],[3,1,35,24,0,1,1,"thank-you_signbank_001"],[3,1,36,33,0,0,0,"think_signbank_001"],[3,1,36,33,0,0,0,"think_signbank_002"],[3,1,36,24,0,0,1,"think_signbank_003"],[3,1,37,23,0,0,1,"tired_signbank_001"],[3,1,38,8,0,0,0,"today_signbank_001"],[3,1,39,24,0,0,1,"toilet_signbank_001"],[3,1,39,24,0,0,1,"toilet_signbank_002"],[3,1,39,24,0,0,1,"toilet_signbank_003"],[3,1,40,5,0,0,1,"understand_signbank_001"],[3,1,40,24,0,0,1,"understand_signbank_002"],[3,1,41,33,0,0,1,"water_signbank_001"],[3,1,41,33,0,0,1,"water_signbank_002"],[3,1,41,24,0,0,1,"water_signbank_003"],[3,1,42,23,0,0,1,"week_signbank_001"],[3,1,42,23,0,0,1,"week_signbank_002"],[3,1,43,24,0,0,1,"what_signbank_001"],[3,1,44,23,0,1,1,"where_signbank_001"],[3,1,45,24,0,0,1,"who_signbank_001"],[3,1,45,24,0,0,1,"who_signbank_002"],[3,1,45,24,0,0,1,"who_signbank_003"],[3,1,46,24,0,0,1,"why_signbank_001"],[3,1,47,24,0,0,1,"work_signbank_001"],[3,1,48,33,0,0,1,"yes_signbank_001"],[3,1,48,23,0,0,1,"yes_signbank_002"],[3,1,49,24,0,0,1,"yesterday_signbank_001"],[3,1,49,33,0,0,1,"yesterday_signbank_002"]],"urls":{"angry_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/angry-1.html","angry_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/angry-2.html","ask_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/ask-1.html","baby_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/baby-1.html","bad_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/bad-1.html","bad_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/bad-2.html","brother_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/brother-1.html","drink_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/drink-1.html","eat_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/eat-1.html","eat_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/eat-2.html","family_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/family-1.html","family_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/family-2.html","father_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/father-1.html","father_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/father-2.html","friend_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/friend-1.html","friend_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/friend-2.html","go_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/go-1.html","go_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/go-2.html","go_signbank_003":"https://bslsignbank.ucl.ac.uk/dictionary/words/go-3.html","good_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/good-1.html","good_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/good-2.html","good_signbank_003":"https://bslsignbank.ucl.ac.uk/dictionary/words/good-3.html","goodbye_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/good%20bye-1.html","happy_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/happy-1.html","happy_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/happy-2.html","hello_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/hello-1.html","help_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/help-1.html","help_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/help-2.html","home_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/home-1.html","home_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/home-2.html","home_signbank_003":"https://bslsignbank.ucl.ac.uk/dictionary/words/home-3.html","how_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/how-1.html","how_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/how-2.html","know_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/know-1.html","like_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/like-1.html","like_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/like-2.html","like_signbank_003":"https://bslsignbank.ucl.ac.uk/dictionary/words/like-4.html","look_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/look-1.html","look_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/look-2.html","look_signbank_003":"https://bslsignbank.ucl.ac.uk/dictionary/words/look-3.html","love_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/love-1.html","love_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/love-2.html","love_signbank_003":"https://bslsignbank.ucl.ac.uk/dictionary/words/love-3.html","make_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/make-1.html","make_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/make-2.html","money_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/money-1.html","money_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/money-2.html","money_signbank_003":"https://bslsignbank.ucl.ac.uk/dictionary/words/money-3.html","morning_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/morning-1.html","morning_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/morning-2.html","morning_signbank_003":"https://bslsignbank.ucl.ac.uk/dictionary/words/morning-3.html","mother_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/mother-1.html","mother_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/mother-2.html","need_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/need-1.html","no_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/no-1.html","no_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/no-2.html","no_signbank_003":"https://bslsignbank.ucl.ac.uk/dictionary/words/no-3.html","please_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/please-1.html","sad_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/sad-1.html","sad_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/sad-2.html","school_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/school-1.html","school_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/school-2.html","school_signbank_003":"https://bslsignbank.ucl.ac.uk/dictionary/words/school-3.html","sister_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/sister-1.html","sleep_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/sleep-1.html","sleep_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/sleep-2.html","sleep_signbank_003":"https://bslsignbank.ucl.ac.uk/dictionary/words/sleep-3.html","sorry_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/sorry-1.html","sorry_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/sorry-2.html","sorry_signbank_003":"https://bslsignbank.ucl.ac.uk/dictionary/words/sorry-3.html","stop_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/stop-1.html","stop_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/stop-2.html","stop_signbank_003":"https://bslsignbank.ucl.ac.uk/dictionary/words/stop-3.html","thank-you_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/thank%20you-1.html","think_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/think-1.html","think_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/think-2.html","think_signbank_003":"https://bslsignbank.ucl.ac.uk/dictionary/words/think-3.html","tired_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/tired-1.html","today_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/today-1.html","toilet_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/toilet-1.html","toilet_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/toilet-2.html","toilet_signbank_003":"https://bslsignbank.ucl.ac.uk/dictionary/words/toilet-3.html","understand_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/understand-1.html","understand_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/understand-2.html","water_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/water-7.html","water_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/water-8.html","water_signbank_003":"https://bslsignbank.ucl.ac.uk/dictionary/words/water-9.html","week_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/week-1.html","week_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/week-2.html","what_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/what-1.html","where_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/where-1.html","who_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/who-1.html","who_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/who-2.html","who_signbank_003":"https://bslsignbank.ucl.ac.uk/dictionary/words/who-3.html","why_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/why-2.html","work_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/work-1.html","yes_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/yes-1.html","yes_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/yes-2.html","yesterday_signbank_001":"https://bslsignbank.ucl.ac.uk/dictionary/words/yesterday-1.html","yesterday_signbank_002":"https://bslsignbank.ucl.ac.uk/dictionary/words/yesterday-2.html"},"latency":[["MediaPipe Holistic",20.7],["Model forward",2.08],["Capture (file decode)",0.11],["Normalise",0.1]],"validation":[["Transformer (no aug)",17.3,20.0],["Transformer (aug)",16.0,18.0],["LSTM (aug)",10.7,12.0],["LSTM (no aug)",9.3,10.0]]};
+
+const state = { test: "all", model: "all", conf: "all", word: null };
+const pct = x => (100 * x).toFixed(1) + "%";
+
+function inView(r, ignoreTest) {
+  if (!ignoreTest && state.test !== "all" && r[1] !== +state.test) return false;
+  if (state.model !== "all" && r[0] !== +state.model) return false;
+  if (state.conf === "1" && r[1] === 1 && r[6] !== 1) return false;
+  return true;
+}
+
+function kpis() {
+  const rows = DATA.rows.filter(r => inView(r));
+  const n = rows.length;
+  const t1 = n ? rows.reduce((s, r) => s + r[4], 0) / n : 0;
+  const t5 = n ? rows.reduce((s, r) => s + r[5], 0) / n : 0;
+  document.getElementById("kTop1").textContent = n ? pct(t1) : "–";
+  document.getElementById("kTop5").textContent = n ? pct(t5) : "–";
+  document.getElementById("kClips").textContent = n;
+  const bits = [];
+  if (state.model !== "all") bits.push(DATA.models[+state.model]);
+  if (state.test !== "all") bits.push(DATA.tests[+state.test].toLowerCase());
+  document.getElementById("kClipsLbl").textContent =
+    "clips in view" + (bits.length ? " — " + bits.join(", ") : "");
+}
+
+function modelChart() {
+  const host = document.getElementById("modelChart");
+  host.innerHTML = "";
+  const max = 0.2;
+  DATA.models.forEach((m, mi) => {
+    const grp = document.createElement("div");
+    grp.className = "grp";
+    grp.innerHTML = `<div class="gl">${m}</div>`;
+    [0, 1].forEach(t => {
+      const rows = DATA.rows.filter(r => r[0] === mi && r[1] === t &&
+        !(state.conf === "1" && t === 1 && r[6] !== 1));
+      const acc = rows.length ? rows.reduce((s, r) => s + r[4], 0) / rows.length : 0;
+      const row = document.createElement("div");
+      row.className = "bar-row";
+      const dim = (state.model !== "all" && +state.model !== mi) ||
+                  (state.test !== "all" && +state.test !== t);
+      row.innerHTML =
+        `<div class="bar-track"><div class="bar s${t + 1}" style="width:${Math.min(acc / max, 1) * 100}%;opacity:${dim ? .3 : 1}"></div></div>
+         <div class="bar-val">${pct(acc)} <span style="color:var(--muted)">/ ${rows.length}</span></div>`;
+      const bar = row.querySelector(".bar");
+      bar.addEventListener("click", () => {
+        state.model = String(mi); state.test = String(t); syncSegs(); render();
+      });
+      hover(bar, () => `${m} · ${DATA.tests[t]} — ${pct(acc)} top-1 (${rows.length} clips)`);
+      grp.appendChild(row);
+    });
+    host.appendChild(grp);
+  });
+}
+
+function wordChart() {
+  const host = document.getElementById("wordChart");
+  host.innerHTML = "";
+  const agg = DATA.words.map((w, wi) => {
+    const rows = DATA.rows.filter(r => r[2] === wi && inView(r));
+    const n = rows.length;
+    return { w, wi, n, acc: n ? rows.reduce((s, r) => s + r[4], 0) / n : 0 };
+  }).filter(a => a.n > 0)
+    .sort((a, b) => b.acc - a.acc || a.w.localeCompare(b.w));
+  agg.forEach(a => {
+    const el = document.createElement("div");
+    el.className = "wrow" + (state.word === a.wi ? " sel" : "");
+    el.innerHTML = `<span class="wl">${a.w}</span>
+      <span class="wt"><span class="wb" style="width:${a.acc * 100}%"></span></span>
+      <span class="wv">${Math.round(a.acc * 100)}%</span>`;
+    el.addEventListener("click", () => {
+      state.word = state.word === a.wi ? null : a.wi; render();
+      if (state.word !== null) document.getElementById("confCard").scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+    hover(el, () => `${a.w} — ${pct(a.acc)} top-1 over ${a.n} clip${a.n === 1 ? "" : "s"}`);
+    host.appendChild(el);
+  });
+}
+
+function confusion() {
+  const card = document.getElementById("confCard");
+  if (state.word === null) { card.hidden = true; return; }
+  card.hidden = false;
+  const w = DATA.words[state.word];
+  const rows = DATA.rows.filter(r => r[2] === state.word && inView(r));
+  const correct = rows.filter(r => r[4]).length;
+  document.getElementById("confTitle").textContent = `Confusion — “${w}”`;
+  document.getElementById("confNote").textContent =
+    `${correct} of ${rows.length} clips correct under the current filters.`;
+  const counts = {};
+  rows.forEach(r => {
+    const p = r[3] >= 0 ? DATA.words[r[3]] : "?";
+    counts[p] = (counts[p] || 0) + 1;
+  });
+  const maxC = Math.max(...Object.values(counts), 1);
+  const bars = document.getElementById("confBars");
+  bars.innerHTML = "";
+  Object.entries(counts).sort((a, b) => b[1] - a[1]).forEach(([p, c]) => {
+    const row = document.createElement("div");
+    row.className = "bar-row";
+    row.innerHTML =
+      `<span style="width:86px;font-size:12.5px;${p === w ? "font-weight:700" : ""}">${p}</span>
+       <div class="bar-track"><div class="bar" style="width:${c / maxC * 100}%;background:${p === w ? "var(--good)" : "var(--s1)"}"></div></div>
+       <div class="bar-val">${c}</div>`;
+    bars.appendChild(row);
+  });
+  const tbl = document.getElementById("confTable");
+  tbl.innerHTML = "<tr><th>clip</th><th>model</th><th>predicted</th><th></th></tr>" +
+    rows.map(r => {
+      const url = DATA.urls[r[7]];
+      const clip = url ? `<a href="${url}">${r[7]}</a>` : r[7];
+      const p = r[3] >= 0 ? DATA.words[r[3]] : "?";
+      return `<tr><td>${clip}</td><td>${DATA.models[r[0]]}</td><td>${p}</td>
+        <td class="${r[4] ? "hit" : "miss"}">${r[4] ? "✓" : "✗"}</td></tr>`;
+    }).join("");
+}
+
+function sbStats() {
+  const best = DATA.rows.filter(r => r[0] === 0 && r[1] === 1);
+  const hi = best.filter(r => r[6] === 1);
+  const f = rows => rows.length ? rows.reduce((s, r) => s + r[4], 0) / rows.length : 0;
+  const f5 = rows => rows.length ? rows.reduce((s, r) => s + r[5], 0) / rows.length : 0;
+  document.getElementById("sbStats").innerHTML = `<table>
+    <tr><th>Best transformer on SignBank</th><th>top-1</th><th>top-5</th><th>clips</th></tr>
+    <tr><td>All clips</td><td>${pct(f(best))}</td><td>${pct(f5(best))}</td><td>${best.length}</td></tr>
+    <tr><td>Exact-keyword subset</td><td>${pct(f(hi))}</td><td>${pct(f5(hi))}</td><td>${hi.length}</td></tr>
+  </table>`;
+}
+
+function latChart() {
+  const host = document.getElementById("latChart");
+  host.innerHTML = "";
+  const max = DATA.latency[0][1];
+  DATA.latency.forEach(([stage, ms]) => {
+    const row = document.createElement("div");
+    row.className = "bar-row";
+    row.innerHTML =
+      `<span style="width:150px;font-size:12.5px">${stage}</span>
+       <div class="bar-track"><div class="bar s1" style="width:${ms / max * 100}%"></div></div>
+       <div class="bar-val">${ms.toFixed(2)} ms</div>`;
+    hover(row.querySelector(".bar"), () => `${stage} — median ${ms.toFixed(2)} ms per frame`);
+    host.appendChild(row);
+  });
+}
+
+function valTable() {
+  document.getElementById("valTable").innerHTML = "<table>" +
+    "<tr><th>condition</th><th>val top-1</th><th>best run</th></tr>" +
+    DATA.validation.map(v =>
+      `<tr><td>${v[0]}</td><td>${v[1].toFixed(1)}%</td><td>${v[2].toFixed(1)}%</td></tr>`).join("") +
+    "</table>";
+}
+
+function aggTable() {
+  let html = "<table><tr><th>model</th><th>test set</th><th>top-1</th><th>top-5</th><th>clips</th></tr>";
+  DATA.models.forEach((m, mi) => [0, 1].forEach(t => {
+    const rows = DATA.rows.filter(r => r[0] === mi && r[1] === t);
+    const f = k => rows.reduce((s, r) => s + r[k], 0) / rows.length;
+    html += `<tr><td>${m}</td><td>${DATA.tests[t]}</td><td>${pct(f(4))}</td><td>${pct(f(5))}</td><td>${rows.length}</td></tr>`;
+  }));
+  document.getElementById("aggTable").innerHTML = html + "</table>";
+}
+
+const tip = document.getElementById("tip");
+function hover(el, text) {
+  el.addEventListener("mousemove", e => {
+    tip.textContent = text();
+    tip.style.left = e.clientX + "px";
+    tip.style.top = e.clientY + "px";
+    tip.style.display = "block";
+  });
+  el.addEventListener("mouseleave", () => { tip.style.display = "none"; });
+}
+
+function syncSegs() {
+  document.querySelectorAll(".seg").forEach(seg => {
+    const f = seg.dataset.f;
+    seg.querySelectorAll("button").forEach(b =>
+      b.classList.toggle("on", b.dataset.v === state[f]));
+  });
+  document.getElementById("confHigh").disabled = state.test === "0";
+}
+
+document.getElementById("filters").addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (!b || b.disabled) return;
+  state[b.closest(".seg").dataset.f] = b.dataset.v;
+  if (state.test === "0") state.conf = "all";
+  syncSegs(); render();
+});
+
+function render() { kpis(); modelChart(); wordChart(); confusion(); }
+
+sbStats(); latChart(); valTable(); aggTable(); syncSegs(); render();
+</script>
+</body>
+</html>
