@@ -143,6 +143,8 @@
     <a href="https://huggingface.co/spaces/paperfrog/bsl-word-recognition">live demonstrator</a></p>
 </header>
 
+<div class="pipe" id="flow" style="margin-bottom:20px"></div>
+
 <div class="filters" id="filters">
   <div class="filter"><label>Test set</label><div class="seg" data-f="test">
     <button data-v="all" class="on">Both</button>
@@ -168,7 +170,7 @@
   <div class="tile"><div class="v ok">2.08 ms ✓</div><div class="k">median per-window latency (criterion &lt; 100 ms)</div></div>
 </div>
 
-<div class="card">
+<div class="card" id="dsCard">
   <h2>Dataset</h2>
   <p class="note">293 dictionary clips over a 50-word vocabulary, located via SignBSL.com and attributed to 14 contributing organisations — the organisation is the signer proxy for all grouping decisions. Three organisations were withheld from training entirely and form the one-shot test partition; a further 100 clips from the publicly accessible UCL BSL SignBank provide a cross-corpus test with genuinely unseen signers. Only derived landmarks are publicly redistributed.</p>
   <div class="grid2">
@@ -198,7 +200,7 @@
   <p class="note" style="margin-top:8px">Raw video is discarded after extraction — everything downstream is landmark-only. During training, temporal augmentation (speed ×0.8–1.2 or frame dropping) runs before the resample and spatial augmentation (rotate, scale, translate, jitter) after it, each with p&nbsp;=&nbsp;0.5; the identical unaugmented path runs at inference.</p>
 </div>
 
-<div class="card">
+<div class="card" id="resultsCard">
   <h2>One-shot test accuracy by model</h2>
   <p class="note">Top-1 accuracy per finally-selected model on each held-out test. Click a bar to focus the view; the gloss-match filter applies to the SignBank series.</p>
   <div class="legend">
@@ -230,7 +232,7 @@
     <p class="note">The cross-corpus set was curated from a 103-row gloss map; 76 clips match the vocabulary keyword exactly. Four words have no same-gloss SignBank entry (stop→FINISH, today→NOW, need→WANT, goodbye→WAVE-HAND) and mostly fail, as expected.</p>
     <div id="sbStats"></div>
   </div>
-  <div class="card">
+  <div class="card" id="latCard">
     <h2>Where the milliseconds go</h2>
     <p class="note">Median per-frame cost over 1,000 frames of the full pipeline (video-capture mode; landmark extraction dominates).</p>
     <div id="latChart"></div>
@@ -242,7 +244,7 @@
   </div>
 </div>
 
-<div class="card">
+<div class="card" id="valCard">
   <h2>Validation and rigour</h2>
   <p class="note">Model selection used a 50-clip validation split only (one clip per word); the selection rule was frozen before any test clip was scored. Values are mean ± population standard deviation over seeds 42–44, with the best run in parentheses.</p>
   <div id="valTable"></div>
@@ -396,6 +398,45 @@ const ORGS = [
   ["winkball", 3, 0], ["wolver", 2, 0], ["deafsigns", 1, 0], ["ict", 1, 0],
 ];
 
+const FLOW = [
+  ["Collect", "293 dictionary clips · 14 sources",
+   "Polite, rate-limited retrieval of publicly listed SignBSL.com clips with per-clip provenance; 100 further clips from UCL BSL SignBank form the cross-corpus test.", "dsCard"],
+  ["Preprocess", "landmarks → 64 × 315",
+   "MediaPipe Holistic landmark extraction, gap fill, shoulder-centred normalisation and 64-frame resampling — the full strip is in the Dataset section.", "dsCard"],
+  ["Partition", "174 / 50 / 69 + 100",
+   "Organisation-grouped split: three source organisations withheld entirely for the one-shot test; validation is one seeded clip per word.", "dsCard"],
+  ["Train", "12-run grid · seeded",
+   "{transformer, LSTM} × {augmented, not} × three seeds, 80 epochs each, deterministic; overfit-one-batch and label-shuffle gates run first.", "valCard"],
+  ["Select", "frozen on validation",
+   "Best validation run per condition promoted — the rule was fixed before any test clip was scored; all four selections landed on seed 42.", "valCard"],
+  ["Evaluate one-shot", "two held-out tests",
+   "Each test set scored exactly once per selected model: 69 organisation-held-out clips and 100 SignBank clips, with McNemar's exact test on the paired predictions.", "resultsCard"],
+  ["Deploy", "live web demonstrator",
+   "Public Gradio Space on CPU hardware; 44.3 fps end-to-end, verified through the public interface with held-out clips.", "latCard"],
+];
+
+function flowChart() {
+  const host = document.getElementById("flow");
+  FLOW.forEach(([t, sub, tipText, target], i) => {
+    if (i) {
+      const a = document.createElement("div");
+      a.className = "parrow";
+      a.textContent = "→";
+      host.appendChild(a);
+    }
+    const s = document.createElement("div");
+    s.className = "pstep" + (i === FLOW.length - 1 ? " out" : "");
+    s.style.cursor = "pointer";
+    s.innerHTML = `<b>${t}</b><span>${sub}</span>`;
+    hover(s, () => tipText);
+    s.addEventListener("click", () => {
+      const el = document.getElementById(target);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    host.appendChild(s);
+  });
+}
+
 const PIPE = [
   ["Video", "dictionary or webcam clip",
    "Any resolution and length; nothing is resized or cropped — landmarks are resolution-independent."],
@@ -535,7 +576,7 @@ document.getElementById("filters").addEventListener("click", e => {
 
 function render() { kpis(); modelChart(); wordChart(); confusion(); }
 
-pipeChart(); orgChart(); splitStrip(); sbStats(); latChart(); valTable(); aggTable(); syncSegs(); render();
+flowChart(); pipeChart(); orgChart(); splitStrip(); sbStats(); latChart(); valTable(); aggTable(); syncSegs(); render();
 </script>
 </body>
 </html>
