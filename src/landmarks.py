@@ -17,8 +17,8 @@ face-mesh points ``face_landmarks[i] for i in MOUTH_FACE_INDICES`` in order
 
 Only the mouth region of the face mesh is retained because mouth patterns
 (mouthings and mouth gestures) carry discriminative information in BSL,
-while including the full 468-point mesh would roughly triple the feature
-dimensionality with mostly static, identity-related points.
+while including the full 468-point mesh would grow the feature
+dimensionality roughly five-fold with mostly static, identity-related points.
 
 With x, y, z per landmark a frame flattens to 315 features
 (FEATURES_PER_FRAME).

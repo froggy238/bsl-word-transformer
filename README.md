@@ -52,7 +52,7 @@ bsl-word-transformer/
 │   └── test_landmarks/       # cached test landmarks (gitignored)
 ├── notebooks/
 │   ├── eda.ipynb             # exploratory data analysis + split creation
-│   ├── results.ipynb         # regenerates every dissertation figure/table
+│   ├── results.ipynb         # regenerates the v1-partition figures/tables
 │   └── train_colab.ipynb     # GPU training of the full grid on Google Colab
 ├── src/
 │   ├── landmarks.py          # landmark index constants (105-point subset)
@@ -159,8 +159,9 @@ pytest            # sanity: full test suite runs with no data downloaded
     <https://huggingface.co/spaces/paperfrog/bsl-word-recognition> (Gradio 6,
     CPU hardware; the Space sleeps when idle and wakes in about a minute).
 
-Finally, `notebooks/results.ipynb` regenerates every dissertation figure and table from
-`results/runs/*`.
+Finally, `notebooks/results.ipynb` regenerates the v1-partition figures and tables from
+`results/runs/*`; the held-out test numbers reported in the dissertation come from the
+one-shot evaluation artefacts under `results/runs_v2/` (see the next section).
 
 ## v2 held-out evaluation (2026-07-27)
 
