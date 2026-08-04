@@ -136,6 +136,18 @@
   .pstep.out b { color: var(--s1); }
   .parrow { align-self: center; color: var(--axis); font-size: 15px; }
 
+  .arch svg { width: 100%; min-width: 720px; height: auto; display: block; }
+  .arch .box { fill: var(--plane); stroke: var(--ring); }
+  .arch .box.hl { stroke: color-mix(in srgb, var(--s1) 55%, transparent); }
+  .arch .t { fill: var(--ink); font: 600 12.5px system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .arch .t.hl-t { fill: var(--s1); }
+  .arch .d { fill: var(--muted); font: 400 10.5px system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .arch .arr { stroke: var(--axis); stroke-width: 1.3; fill: none; }
+  .arch .arrh { fill: var(--axis); }
+
+  .lim { margin: 0; padding-left: 18px; color: var(--ink-2); font-size: 13px; }
+  .lim li { margin-bottom: 6px; }
+
   .tooltip { position: fixed; pointer-events: none; background: var(--ink);
     color: var(--plane); font-size: 12px; padding: 5px 9px; border-radius: 6px;
     transform: translate(-50%, -130%); white-space: nowrap; z-index: 10; display: none; }
@@ -190,6 +202,60 @@
   <h3 style="font-size:13px;margin:16px 0 6px;color:var(--ink-2)">Preprocessing pipeline (per clip)</h3>
   <div class="pipe" id="pipe"></div>
   <p class="note" style="margin-top:8px">Raw video is discarded after extraction — everything downstream is landmark-only. During training, temporal augmentation (speed ×0.8–1.2 or frame dropping) runs before the resample and spatial augmentation (rotate, scale, translate, jitter) after it, each with p&nbsp;=&nbsp;0.5; the identical unaugmented path runs at inference.</p>
+</div>
+
+<div class="card arch" id="archCard">
+  <h2>From clip to prediction</h2>
+  <p class="note">The complete architecture, dataset to prediction — the same code path at training, at evaluation and inside the live demonstrator. Every result on this page is a saved output of this pipeline applied one-shot to the two held-out test sets.</p>
+  <div style="overflow-x:auto">
+  <svg viewBox="0 0 980 236" role="img" aria-label="Architecture: clip to MediaPipe landmarks to preprocessing to feature matrix, then transformer encoder to prediction">
+    <!-- row 1: data path -->
+    <rect class="box" x="10" y="16" width="216" height="70" rx="10"/>
+    <text class="t" x="22" y="38">Dictionary clip</text>
+    <text class="d" x="22" y="54">mp4 · 1–8 s · any resolution</text>
+    <text class="d" x="22" y="68">SignBSL / SignBank source</text>
+    <rect class="box" x="262" y="16" width="216" height="70" rx="10"/>
+    <text class="t" x="274" y="38">MediaPipe Holistic 0.10.9</text>
+    <text class="d" x="274" y="54">105 landmarks per frame (x, y, z)</text>
+    <text class="d" x="274" y="68">+ per-frame presence flags</text>
+    <rect class="box" x="514" y="16" width="216" height="70" rx="10"/>
+    <text class="t" x="526" y="38">Preprocessing</text>
+    <text class="d" x="526" y="54">gap-fill ≤ 5 · shoulder-normalise</text>
+    <text class="d" x="526" y="68">NaN→0 · resample to 64 frames</text>
+    <rect class="box" x="766" y="16" width="204" height="70" rx="10"/>
+    <text class="t" x="778" y="38">Feature matrix</text>
+    <text class="d" x="778" y="54">64 frames × 315 features</text>
+    <text class="d" x="778" y="68">float32, model input</text>
+    <line class="arr" x1="230" y1="51" x2="254" y2="51"/><polygon class="arrh" points="254,46 262,51 254,56"/>
+    <line class="arr" x1="482" y1="51" x2="506" y2="51"/><polygon class="arrh" points="506,46 514,51 506,56"/>
+    <line class="arr" x1="734" y1="51" x2="758" y2="51"/><polygon class="arrh" points="758,46 766,51 758,56"/>
+    <!-- connector -->
+    <line class="arr" x1="490" y1="92" x2="490" y2="140"/><polygon class="arrh" points="485,140 490,148 495,140"/>
+    <text class="d" x="502" y="112">training adds augmentation around the resample (p = 0.5);</text>
+    <text class="d" x="502" y="126">evaluation and the demonstrator run this path unchanged</text>
+    <!-- row 2: model path -->
+    <rect class="box" x="10" y="150" width="216" height="70" rx="10"/>
+    <text class="t" x="22" y="172">Input projection + CLS</text>
+    <text class="d" x="22" y="188">linear 315 → 192 · CLS token</text>
+    <text class="d" x="22" y="202">learned positional embeddings</text>
+    <rect class="box" x="262" y="150" width="216" height="70" rx="10"/>
+    <text class="t" x="274" y="172">Transformer encoder × 4</text>
+    <text class="d" x="274" y="188">pre-LN · self-attention, 6 heads</text>
+    <text class="d" x="274" y="202">d_model 192 · FFN 384 · from scratch</text>
+    <rect class="box" x="514" y="150" width="216" height="70" rx="10"/>
+    <text class="t" x="526" y="172">LayerNorm + linear head</text>
+    <text class="d" x="526" y="188">CLS position → 50 logits</text>
+    <text class="d" x="526" y="202">1,271,474 parameters total</text>
+    <rect class="box hl" x="766" y="150" width="204" height="70" rx="10"/>
+    <text class="t hl-t" x="778" y="172">Prediction</text>
+    <text class="d" x="778" y="188">softmax over 50 words</text>
+    <text class="d" x="778" y="202">top-5 ranked candidates</text>
+    <line class="arr" x1="230" y1="185" x2="254" y2="185"/><polygon class="arrh" points="254,180 262,185 254,190"/>
+    <line class="arr" x1="482" y1="185" x2="506" y2="185"/><polygon class="arrh" points="506,180 514,185 506,190"/>
+    <line class="arr" x1="734" y1="185" x2="758" y2="185"/><polygon class="arrh" points="758,180 766,185 758,190"/>
+  </svg>
+  </div>
+  <p class="note" style="margin-top:8px">The capacity-matched baseline swaps the transformer row for a unidirectional 2×256 LSTM (1,125,938 parameters) whose final hidden state feeds the same kind of linear head; everything upstream of the model is identical.</p>
 </div>
 
 <div class="filters" id="filters">
@@ -270,6 +336,35 @@
     <span class="chip">label-shuffle collapses to chance (2.0%)</span>
     <span class="chip">overfit-one-batch passes ≥ 95%</span>
     <span class="chip">clean-room notebook reproduces every number</span>
+  </div>
+</div>
+
+<div class="card" id="limitsCard">
+  <h2>Limitations and future work</h2>
+  <div class="grid2">
+    <div>
+      <h3 style="font-size:13px;margin:0 0 6px;color:var(--ink-2)">Limitations</h3>
+      <ul class="lim">
+        <li>Small scale: 50 words and 174 training clips, so absolute accuracy is low and per-class estimates are noisy (macro-F1 ≤ 0.107).</li>
+        <li>Severe signer/source transfer gap: ~100% training accuracy against 13–14% one-shot test accuracy — a data problem, not a tuning problem.</li>
+        <li>Learning rate and weight decay were frozen using the v1 validation organisations, which were later promoted to the test partition — a disclosed threat to validity (hyperparameters, never model weights).</li>
+        <li>'water' has no organisation-held-out clips and is covered by the SignBank test only.</li>
+        <li>BSL regional variation means some cross-corpus errors are label-space confounds rather than recognition failures; the sense-flag analysis only partially controls for this.</li>
+        <li>Latency was profiled in video-capture mode (the development machine has no camera), so live-camera capture cost is not measured.</li>
+        <li>Isolated citation-form dictionary signs only — continuous, co-articulated signing is out of scope.</li>
+      </ul>
+    </div>
+    <div>
+      <h3 style="font-size:13px;margin:0 0 6px;color:var(--ink-2)">Future work</h3>
+      <ul class="lim">
+        <li>Scale the data with community-recorded signers rather than dictionary studios — the evidence says more signers, not more tuning, closes the transfer gap.</li>
+        <li>Handedness canonicalisation and mirroring augmentation, motivated by the left/right dominance differences across sources.</li>
+        <li>Auxiliary phonological targets (handshape, location, movement) to share signal across the sparse classes.</li>
+        <li>Sliding-window segmentation towards continuous signing beyond isolated words.</li>
+        <li>Larger vocabulary with pretraining on broadcast sign corpora.</li>
+        <li>Camera-based live evaluation, and co-designed user studies with Deaf signers to test the ranked-candidate interface.</li>
+      </ul>
+    </div>
   </div>
 </div>
 
