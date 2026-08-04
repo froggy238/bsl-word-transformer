@@ -160,6 +160,33 @@
 </div>
 
 <div class="card">
+  <h2>Dataset</h2>
+  <p class="note">293 dictionary clips over a 50-word vocabulary, located via SignBSL.com and attributed to 14 contributing organisations — the organisation is the signer proxy for all grouping decisions. Three organisations were withheld from training entirely and form the one-shot test partition; a further 100 clips from the publicly accessible UCL BSL SignBank provide a cross-corpus test with genuinely unseen signers. Only derived landmarks are publicly redistributed.</p>
+  <div class="grid2">
+    <div>
+      <h3 style="font-size:13px;margin:0 0 6px;color:var(--ink-2)">Clips per organisation</h3>
+      <div class="legend">
+        <span><span class="sw" style="background:var(--s1)"></span>held-out for the one-shot test</span>
+        <span><span class="sw" style="background:var(--s1);opacity:.45"></span>training / validation pool</span>
+      </div>
+      <div id="orgChart"></div>
+    </div>
+    <div>
+      <h3 style="font-size:13px;margin:0 0 6px;color:var(--ink-2)">Partition (293 SignBSL clips)</h3>
+      <div id="splitStrip" style="display:flex;height:34px;border-radius:8px;overflow:hidden;margin-bottom:14px"></div>
+      <table>
+        <tr><th>set</th><th>clips</th><th>construction</th></tr>
+        <tr><td>Train</td><td>174</td><td>11 organisations</td></tr>
+        <tr><td>Validation</td><td>50</td><td>one clip per word, seeded draw</td></tr>
+        <tr><td>Test (org-held-out)</td><td>69</td><td>3 withheld organisations · 49/50 classes ('water' absent)</td></tr>
+        <tr><td>Test (SignBank)</td><td>100</td><td>separate corpus · all 50 classes · up to 3 regional variants per word</td></tr>
+      </table>
+      <p class="note" style="margin-top:12px">Data quality varies sharply by source: at least one hand goes undetected in roughly 30% of SignBSL frames (0–82% by organisation) but only 2.3% of SignBank studio frames. The pipeline absorbs gaps by short-run interpolation with per-frame presence flags rather than discarding clips.</p>
+    </div>
+  </div>
+</div>
+
+<div class="card">
   <h2>One-shot test accuracy by model</h2>
   <p class="note">Top-1 accuracy per finally-selected model on each held-out test. Click a bar to focus the view; the gloss-match filter applies to the SignBank series.</p>
   <div class="legend">
@@ -350,6 +377,44 @@ function confusion() {
     }).join("");
 }
 
+const ORGS = [
+  ["signstation", 96, 0], ["signmonkey", 45, 0], ["youtube", 39, 0],
+  ["gpnhs", 27, 1], ["corpusngt", 26, 1], ["deafway", 16, 1], ["nf", 16, 0],
+  ["signon", 10, 0], ["exeterdeafacademy", 8, 0], ["bslfirst", 3, 0],
+  ["winkball", 3, 0], ["wolver", 2, 0], ["deafsigns", 1, 0], ["ict", 1, 0],
+];
+
+function orgChart() {
+  const host = document.getElementById("orgChart");
+  const max = ORGS[0][1];
+  ORGS.forEach(([org, n, held]) => {
+    const row = document.createElement("div");
+    row.className = "bar-row";
+    row.style.height = "18px";
+    row.innerHTML =
+      `<span style="width:130px;font-size:12px;color:var(--ink-2)">${org}</span>
+       <div class="bar-track" style="height:11px"><div class="bar s1" style="width:${n / max * 100}%;opacity:${held ? 1 : .45}"></div></div>
+       <div class="bar-val" style="width:34px">${n}</div>`;
+    hover(row.querySelector(".bar"), () =>
+      `${org} — ${n} clip${n === 1 ? "" : "s"} · ${held ? "held out for the one-shot test" : "training/validation pool"}`);
+    host.appendChild(row);
+  });
+}
+
+function splitStrip() {
+  const host = document.getElementById("splitStrip");
+  [["Train 174", 174, "var(--s1)", .45], ["Val 50", 50, "var(--muted)", .5],
+   ["Test 69", 69, "var(--s1)", 1]].forEach(([label, n, colour, op]) => {
+    const seg = document.createElement("div");
+    seg.style.cssText = `width:${n / 293 * 100}%;background:${colour};opacity:${op};` +
+      "display:flex;align-items:center;padding-left:8px;color:#fff;" +
+      "font-size:11.5px;font-weight:600;border-right:2px solid var(--surface);white-space:nowrap;overflow:hidden";
+    seg.textContent = label;
+    hover(seg, () => `${label.replace(/ \d+$/, "")} — ${n} of 293 clips (${(n / 293 * 100).toFixed(0)}%)`);
+    host.appendChild(seg);
+  });
+}
+
 function sbStats() {
   const best = DATA.rows.filter(r => r[0] === 0 && r[1] === 1);
   const hi = best.filter(r => r[6] === 1);
@@ -426,7 +491,7 @@ document.getElementById("filters").addEventListener("click", e => {
 
 function render() { kpis(); modelChart(); wordChart(); confusion(); }
 
-sbStats(); latChart(); valTable(); aggTable(); syncSegs(); render();
+orgChart(); splitStrip(); sbStats(); latChart(); valTable(); aggTable(); syncSegs(); render();
 </script>
 </body>
 </html>
